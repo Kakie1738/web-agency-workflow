@@ -3,6 +3,9 @@
 import { useState } from "react"
 import { useQuery, useMutation } from "convex/react"
 import { api } from "../convex/_generated/api"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import * as z from "zod"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -11,6 +14,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
@@ -20,6 +24,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { toast } from "@/components/ui/use-toast"
 import {
   MessageSquare,
   FileText,
@@ -32,7 +37,31 @@ import {
   Paperclip,
   Eye,
   Star,
+  Plus,
+  Users,
 } from "lucide-react"
+
+// Client form validation schema
+const clientSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  email: z.string().email("Invalid email address"),
+  phone: z.string().optional(),
+  company: z.string().optional(),
+  status: z.enum(["active", "inactive", "pending"]),
+})
+
+// Project form validation schema
+const projectSchema = z.object({
+  title: z.string().min(2, "Title must be at least 2 characters"),
+  description: z.string().optional(),
+  clientId: z.string().min(1, "Please select a client"),
+  status: z.enum(["planning", "in_progress", "review", "completed", "on_hold"]),
+  budget: z.number().optional(),
+  currency: z.string().default("USD"),
+})
+
+type ClientFormData = z.infer<typeof clientSchema>
+type ProjectFormData = z.infer<typeof projectSchema>
 
 export function ClientPortalConvex() {
   // Fetch data using Convex reactive queries
@@ -43,11 +72,39 @@ export function ClientPortalConvex() {
   // Mutations for creating/updating data
   const createProject = useMutation(api.projects.createProject)
   const updateProject = useMutation(api.projects.updateProject)
+  const createClient = useMutation(api.clients.createClient)
   const recordRevenue = useMutation(api.analytics.recordRevenue)
   
   const [selectedProject, setSelectedProject] = useState(projects[0])
   const [newMessage, setNewMessage] = useState("")
   const [isUploadOpen, setIsUploadOpen] = useState(false)
+  const [isAddClientOpen, setIsAddClientOpen] = useState(false)
+  const [isAddProjectOpen, setIsAddProjectOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  
+  // Form handling
+  const clientForm = useForm<ClientFormData>({
+    resolver: zodResolver(clientSchema),
+    defaultValues: {
+      name: "",
+      email: "",
+      phone: "",
+      company: "",
+      status: "active",
+    },
+  })
+  
+  const projectForm = useForm<ProjectFormData>({
+    resolver: zodResolver(projectSchema),
+    defaultValues: {
+      title: "",
+      description: "",
+      clientId: "",
+      status: "planning",
+      budget: 0,
+      currency: "USD",
+    },
+  })
 
   const statusColors = {
     planning: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
@@ -74,11 +131,82 @@ export function ClientPortalConvex() {
     return `KSH ${(usdAmount * 130).toLocaleString()}`
   }
 
+  // Handle project update
   const handleProjectUpdate = async (projectId: string, updates: any) => {
     try {
       await updateProject({ id: projectId as any, ...updates })
+      toast({
+        title: "Success!",
+        description: "Project updated successfully.",
+      })
     } catch (error) {
       console.error('Failed to update project:', error)
+      toast({
+        title: "Error",
+        description: "Failed to update project.",
+        variant: "destructive",
+      })
+    }
+  }
+  
+  // Handle client creation
+  const onClientSubmit = async (data: ClientFormData) => {
+    try {
+      setIsLoading(true)
+      await createClient({
+        name: data.name,
+        email: data.email,
+        phone: data.phone,
+        company: data.company,
+        status: data.status,
+      })
+      
+      toast({
+        title: "Success!",
+        description: "Client has been added to the database.",
+      })
+      
+      clientForm.reset()
+      setIsAddClientOpen(false)
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to add client. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+  
+  // Handle project creation
+  const onProjectSubmit = async (data: ProjectFormData) => {
+    try {
+      setIsLoading(true)
+      await createProject({
+        title: data.title,
+        description: data.description,
+        clientId: data.clientId as any,
+        status: data.status,
+        budget: data.budget,
+        currency: data.currency,
+      })
+      
+      toast({
+        title: "Success!",
+        description: "Project has been created successfully.",
+      })
+      
+      projectForm.reset()
+      setIsAddProjectOpen(false)
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to create project. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -105,6 +233,172 @@ export function ClientPortalConvex() {
           <p className="text-muted-foreground mt-1">Track your project progress with real-time updates</p>
         </div>
         <div className="flex gap-2">
+          <Dialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">
+                <Users className="w-4 h-4 mr-2" />
+                Add Client
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add New Client</DialogTitle>
+                <DialogDescription>Create a new client in your database</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={clientForm.handleSubmit(onClientSubmit)} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="client-name">Name *</Label>
+                    <Input 
+                      id="client-name" 
+                      placeholder="John Doe" 
+                      {...clientForm.register("name")}
+                    />
+                    {clientForm.formState.errors.name && (
+                      <p className="text-sm text-red-500">{clientForm.formState.errors.name.message}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="client-email">Email *</Label>
+                    <Input 
+                      id="client-email" 
+                      type="email" 
+                      placeholder="john@company.com" 
+                      {...clientForm.register("email")}
+                    />
+                    {clientForm.formState.errors.email && (
+                      <p className="text-sm text-red-500">{clientForm.formState.errors.email.message}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="client-phone">Phone</Label>
+                    <Input 
+                      id="client-phone" 
+                      placeholder="+1 (555) 123-4567" 
+                      {...clientForm.register("phone")}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="client-company">Company</Label>
+                    <Input 
+                      id="client-company" 
+                      placeholder="Company Inc." 
+                      {...clientForm.register("company")}
+                    />
+                  </div>
+                  <div className="col-span-2 space-y-2">
+                    <Label htmlFor="client-status">Status</Label>
+                    <Select onValueChange={(value) => clientForm.setValue("status", value as any)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="active">Active</SelectItem>
+                        <SelectItem value="inactive">Inactive</SelectItem>
+                        <SelectItem value="pending">Pending</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => {
+                      setIsAddClientOpen(false)
+                      clientForm.reset()
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={isLoading}>
+                    {isLoading ? "Adding..." : "Add Client"}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+          
+          <Dialog open={isAddProjectOpen} onOpenChange={setIsAddProjectOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">
+                <Plus className="w-4 h-4 mr-2" />
+                Add Project
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Create New Project</DialogTitle>
+                <DialogDescription>Add a new project to your workflow</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={projectForm.handleSubmit(onProjectSubmit)} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2 space-y-2">
+                    <Label htmlFor="project-title">Project Title *</Label>
+                    <Input 
+                      id="project-title" 
+                      placeholder="Website Redesign" 
+                      {...projectForm.register("title")}
+                    />
+                    {projectForm.formState.errors.title && (
+                      <p className="text-sm text-red-500">{projectForm.formState.errors.title.message}</p>
+                    )}
+                  </div>
+                  <div className="col-span-2 space-y-2">
+                    <Label htmlFor="project-description">Description</Label>
+                    <Textarea 
+                      id="project-description" 
+                      placeholder="Project description and requirements..." 
+                      {...projectForm.register("description")}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="project-client">Client *</Label>
+                    <Select onValueChange={(value) => projectForm.setValue("clientId", value)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select client" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {clients.map((client) => (
+                          <SelectItem key={client._id} value={client._id}>
+                            {client.name} - {client.company || client.email}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {projectForm.formState.errors.clientId && (
+                      <p className="text-sm text-red-500">{projectForm.formState.errors.clientId.message}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="project-budget">Budget (USD)</Label>
+                    <Input 
+                      id="project-budget" 
+                      type="number" 
+                      placeholder="50000" 
+                      {...projectForm.register("budget", { valueAsNumber: true })}
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => {
+                      setIsAddProjectOpen(false)
+                      projectForm.reset()
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={isLoading}>
+                    {isLoading ? "Creating..." : "Create Project"}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+          
           <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
             <DialogTrigger asChild>
               <Button variant="outline">

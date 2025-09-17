@@ -1,6 +1,11 @@
 "use client"
 
 import { useState } from "react"
+import { useQuery, useMutation } from "convex/react"
+import { api } from "@/convex/_generated/api"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import * as z from "zod"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -17,6 +22,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Progress } from "@/components/ui/progress"
+import { toast } from "@/components/ui/use-toast"
 import {
   FolderOpen,
   Plus,
@@ -31,107 +37,111 @@ import {
   MoreHorizontal,
 } from "lucide-react"
 
-interface Task {
-  id: string
-  title: string
-  description: string
-  assignee: string
-  priority: "Low" | "Medium" | "High" | "Critical"
-  dueDate: string
-  status: "Discovery" | "Planning" | "Design" | "Development" | "QA" | "Launch"
-  tags: string[]
-}
+// Task form validation schema
+const taskSchema = z.object({
+  title: z.string().min(2, "Title must be at least 2 characters"),
+  description: z.string().optional(),
+  projectId: z.string().optional(),
+  assignedTo: z.string().optional(),
+  status: z.enum(["todo", "in_progress", "review", "completed"]),
+  priority: z.enum(["low", "medium", "high"]),
+  dueDate: z.string().optional(),
+})
 
-interface Project {
-  id: string
-  name: string
-  client: string
-  status: "Discovery" | "Planning" | "Design" | "Development" | "QA" | "Launch"
-  progress: number
-  startDate: string
-  dueDate: string
-  budget: string
-  team: string[]
-  tasks: Task[]
-}
+type TaskFormData = z.infer<typeof taskSchema>
 
 export function ProjectWorkflow() {
-  const [projects, setProjects] = useState<Project[]>([
-    {
-      id: "1",
-      name: "TechCorp Website Redesign",
-      client: "TechCorp Inc.",
-      status: "Development",
-      progress: 75,
-      startDate: "2024-01-01",
-      dueDate: "2024-01-15",
-      budget: "KSH 8,450,000",
-      team: ["John Doe", "Sarah Smith", "Mike Johnson"],
-      tasks: [
-        {
-          id: "t1",
-          title: "Homepage wireframe",
-          description: "Create wireframe for new homepage layout",
-          assignee: "Sarah Smith",
-          priority: "High",
-          dueDate: "2024-01-12",
-          status: "Design",
-          tags: ["wireframe", "homepage"],
-        },
-        {
-          id: "t2",
-          title: "Backend API development",
-          description: "Develop REST API for content management",
-          assignee: "Mike Johnson",
-          priority: "Critical",
-          dueDate: "2024-01-14",
-          status: "Development",
-          tags: ["backend", "api"],
-        },
-      ],
-    },
-    {
-      id: "2",
-      name: "E-commerce Platform",
-      client: "ShopMart",
-      status: "QA",
-      progress: 90,
-      startDate: "2023-12-15",
-      dueDate: "2024-01-10",
-      budget: "KSH 5,850,000",
-      team: ["John Doe", "Emily Chen"],
-      tasks: [
-        {
-          id: "t3",
-          title: "Payment integration testing",
-          description: "Test Stripe payment integration",
-          assignee: "Emily Chen",
-          priority: "Critical",
-          dueDate: "2024-01-09",
-          status: "QA",
-          tags: ["payment", "testing"],
-        },
-      ],
-    },
-  ])
-
-  const [selectedProject, setSelectedProject] = useState<Project | null>(projects[0])
+  // Fetch data from Convex
+  const projects = useQuery(api.projects.getProjects) || []
+  const tasks = useQuery(api.tasks.getTasks) || []
+  const clients = useQuery(api.clients.getClients) || []
+  
+  // Mutations
+  const createTask = useMutation(api.tasks.createTask)
+  const updateTask = useMutation(api.tasks.updateTask)
+  const deleteTask = useMutation(api.tasks.deleteTask)
+  
+  const [selectedProject, setSelectedProject] = useState(projects[0])
   const [isAddTaskOpen, setIsAddTaskOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  
+  // Form handling
+  const form = useForm<TaskFormData>({
+    resolver: zodResolver(taskSchema),
+    defaultValues: {
+      title: "",
+      description: "",
+      projectId: "",
+      assignedTo: "",
+      status: "todo",
+      priority: "medium",
+      dueDate: "",
+    },
+  })
 
   const statusColumns = [
-    { id: "Discovery", title: "Discovery", icon: FileText, color: "bg-blue-500" },
-    { id: "Planning", title: "Planning", icon: Calendar, color: "bg-purple-500" },
-    { id: "Design", title: "Design", icon: ImageIcon, color: "bg-pink-500" },
-    { id: "Development", title: "Development", icon: Code, color: "bg-green-500" },
-    { id: "QA", title: "QA Testing", icon: TestTube, color: "bg-yellow-500" },
-    { id: "Launch", title: "Launch", icon: Rocket, color: "bg-red-500" },
+    { id: "todo", title: "To Do", icon: FileText, color: "bg-blue-500" },
+    { id: "in_progress", title: "In Progress", icon: Code, color: "bg-green-500" },
+    { id: "review", title: "Review", icon: TestTube, color: "bg-yellow-500" },
+    { id: "completed", title: "Completed", icon: Rocket, color: "bg-purple-500" },
   ]
 
   const priorityColors = {
-    Low: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300",
-    Medium: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
-    High: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300",
-    Critical: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
+    low: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300",
+    medium: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
+    high: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300",
+  }
+  
+  // Currency conversion from USD to KSH (1 USD = 130 KSH)
+  const convertToKSH = (usdAmount: number) => {
+    return `KSH ${(usdAmount * 130).toLocaleString()}`
+  }
+  
+  // Handle task creation
+  const onSubmit = async (data: TaskFormData) => {
+    try {
+      setIsLoading(true)
+      await createTask({
+        title: data.title,
+        description: data.description,
+        projectId: data.projectId ? (data.projectId as any) : undefined,
+        assignedTo: data.assignedTo,
+        status: data.status,
+        priority: data.priority,
+        dueDate: data.dueDate ? new Date(data.dueDate).getTime() : undefined,
+      })
+      
+      toast({
+        title: "Success!",
+        description: "Task has been created successfully.",
+      })
+      
+      form.reset()
+      setIsAddTaskOpen(false)
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to create task. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+  
+  // Get client name for project
+  const getClientName = (clientId: string) => {
+    const client = clients.find(c => c._id === clientId)
+    return client ? client.name : "Unknown Client"
+  }
+  
+  // Calculate project progress
+  const calculateProgress = (projectId: string) => {
+    const projectTasks = tasks.filter(task => task.projectId === projectId)
+    if (projectTasks.length === 0) return 0
+    
+    const completedTasks = projectTasks.filter(task => task.status === "completed")
+    return Math.round((completedTasks.length / projectTasks.length) * 100)
   }
 
   const getTasksByStatus = (status: string) => {
@@ -158,70 +168,102 @@ export function ProjectWorkflow() {
               <DialogTitle>Add New Task</DialogTitle>
               <DialogDescription>Create a new task for the selected project</DialogDescription>
             </DialogHeader>
-            <div className="grid grid-cols-2 gap-4 py-4">
-              <div className="col-span-2 space-y-2">
-                <Label htmlFor="task-title">Task Title</Label>
-                <Input id="task-title" placeholder="Enter task title" />
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 py-4">
+                <div className="col-span-2 space-y-2">
+                  <Label htmlFor="task-title">Task Title *</Label>
+                  <Input 
+                    id="task-title" 
+                    placeholder="Enter task title" 
+                    {...form.register("title")}
+                  />
+                  {form.formState.errors.title && (
+                    <p className="text-sm text-red-500">{form.formState.errors.title.message}</p>
+                  )}
+                </div>
+                <div className="col-span-2 space-y-2">
+                  <Label htmlFor="task-description">Description</Label>
+                  <Textarea 
+                    id="task-description" 
+                    placeholder="Describe the task requirements..." 
+                    {...form.register("description")}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="project">Project</Label>
+                  <Select onValueChange={(value) => form.setValue("projectId", value)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select project" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {projects.map((project) => (
+                        <SelectItem key={project._id} value={project._id}>
+                          {project.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="assignee">Assignee</Label>
+                  <Input 
+                    id="assignee" 
+                    placeholder="Team member name" 
+                    {...form.register("assignedTo")}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="priority">Priority</Label>
+                  <Select onValueChange={(value) => form.setValue("priority", value as any)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select priority" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">Low</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="due-date">Due Date</Label>
+                  <Input 
+                    id="due-date" 
+                    type="date" 
+                    {...form.register("dueDate")}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="status">Status</Label>
+                  <Select onValueChange={(value) => form.setValue("status", value as any)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todo">To Do</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="review">Review</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div className="col-span-2 space-y-2">
-                <Label htmlFor="task-description">Description</Label>
-                <Textarea id="task-description" placeholder="Describe the task requirements..." />
+              <div className="flex justify-end gap-2">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => {
+                    setIsAddTaskOpen(false)
+                    form.reset()
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={isLoading}>
+                  {isLoading ? "Creating..." : "Create Task"}
+                </Button>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="assignee">Assignee</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select team member" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="john">John Doe</SelectItem>
-                    <SelectItem value="sarah">Sarah Smith</SelectItem>
-                    <SelectItem value="mike">Mike Johnson</SelectItem>
-                    <SelectItem value="emily">Emily Chen</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="priority">Priority</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select priority" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Low">Low</SelectItem>
-                    <SelectItem value="Medium">Medium</SelectItem>
-                    <SelectItem value="High">High</SelectItem>
-                    <SelectItem value="Critical">Critical</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="due-date">Due Date</Label>
-                <Input id="due-date" type="date" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="status">Status</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Discovery">Discovery</SelectItem>
-                    <SelectItem value="Planning">Planning</SelectItem>
-                    <SelectItem value="Design">Design</SelectItem>
-                    <SelectItem value="Development">Development</SelectItem>
-                    <SelectItem value="QA">QA Testing</SelectItem>
-                    <SelectItem value="Launch">Launch</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setIsAddTaskOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={() => setIsAddTaskOpen(false)}>Create Task</Button>
-            </div>
+            </form>
           </DialogContent>
         </Dialog>
       </div>

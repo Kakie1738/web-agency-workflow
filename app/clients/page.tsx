@@ -1,10 +1,10 @@
 import { DashboardLayout } from "@/components/dashboard-layout"
-import { ClientPortal } from "@/components/client-portal"
+import { ClientPortalConvex } from "@/components/client-portal-convex"
 
 export default function ClientsPage() {
   return (
     <DashboardLayout>
-      <ClientPortal />
+      <ClientPortalConvex />
     </DashboardLayout>
   )
 }

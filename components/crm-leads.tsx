@@ -3,6 +3,9 @@
 import { useState } from "react"
 import { useQuery, useMutation } from "convex/react"
 import { api } from "@/convex/_generated/api"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import * as z from "zod"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -19,6 +22,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { toast } from "@/components/ui/use-toast"
 import {
   Users,
   Plus,
@@ -34,75 +38,136 @@ import {
   Trash2,
 } from "lucide-react"
 
-interface Lead {
-  id: string
-  name: string
-  email: string
-  phone: string
-  company: string
-  budget: string
-  status: "New" | "Qualified" | "Proposal Sent" | "Won" | "Lost"
-  source: string
-  createdAt: string
-  notes: string
-}
+// Lead form validation schema
+const leadSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  email: z.string().email("Invalid email address"),
+  phone: z.string().optional(),
+  company: z.string().optional(),
+  status: z.enum(["new", "contacted", "qualified", "proposal", "won", "lost"]),
+  source: z.string().optional(),
+  notes: z.string().optional(),
+  estimatedValue: z.number().optional(),
+})
+
+type LeadFormData = z.infer<typeof leadSchema>
 
 export function CRMLeads() {
-  const [leads, setLeads] = useState<Lead[]>([
-    {
-      id: "1",
-      name: "Sarah Johnson",
-      email: "sarah@techcorp.com",
-      phone: "+1 (555) 123-4567",
-      company: "TechCorp Inc.",
-      budget: "KSH 6,500,000 - KSH 9,750,000",
-      status: "Qualified",
-      source: "Website Form",
-      createdAt: "2024-01-08",
-      notes: "Interested in complete website redesign with e-commerce functionality",
-    },
-    {
-      id: "2",
-      name: "Michael Chen",
-      email: "m.chen@shopmart.com",
-      phone: "+1 (555) 987-6543",
-      company: "ShopMart",
-      budget: "KSH 3,250,000 - KSH 6,500,000",
-      status: "Proposal Sent",
-      source: "Referral",
-      createdAt: "2024-01-05",
-      notes: "Looking for modern e-commerce platform with inventory management",
-    },
-    {
-      id: "3",
-      name: "Emily Rodriguez",
-      email: "emily@creativestudio.com",
-      phone: "+1 (555) 456-7890",
-      company: "Creative Studio",
-      budget: "KSH 1,300,000 - KSH 3,250,000",
-      status: "New",
-      source: "LinkedIn",
-      createdAt: "2024-01-10",
-      notes: "Portfolio website for design agency",
-    },
-  ])
-
+  // Fetch leads from Convex database
+  const leads = useQuery(api.leads.getLeads) || []
+  
+  // Mutations for database operations
+  const createLead = useMutation(api.leads.createLead)
+  const updateLead = useMutation(api.leads.updateLead)
+  const deleteLead = useMutation(api.leads.deleteLead)
+  const convertToClient = useMutation(api.leads.convertLeadToClient)
+  
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [isAddLeadOpen, setIsAddLeadOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  
+  // Form handling
+  const form = useForm<LeadFormData>({
+    resolver: zodResolver(leadSchema),
+    defaultValues: {
+      name: "",
+      email: "",
+      phone: "",
+      company: "",
+      status: "new",
+      source: "",
+      notes: "",
+      estimatedValue: 0,
+    },
+  })
 
   const statusColors = {
-    New: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
-    Qualified: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300",
-    "Proposal Sent": "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300",
-    Won: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-300",
-    Lost: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
+    new: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
+    contacted: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300",
+    qualified: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300",
+    proposal: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300",
+    won: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-300",
+    lost: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
+  }
+
+  // Currency conversion from USD to KSH (1 USD = 130 KSH)
+  const convertToKSH = (usdAmount: number) => {
+    return `KSH ${(usdAmount * 130).toLocaleString()}`
+  }
+
+  // Handle form submission
+  const onSubmit = async (data: LeadFormData) => {
+    try {
+      setIsLoading(true)
+      await createLead({
+        name: data.name,
+        email: data.email,
+        phone: data.phone,
+        company: data.company,
+        status: data.status,
+        source: data.source,
+        notes: data.notes,
+        estimatedValue: data.estimatedValue,
+        currency: "USD",
+      })
+      
+      toast({
+        title: "Success!",
+        description: "Lead has been added to the database.",
+      })
+      
+      form.reset()
+      setIsAddLeadOpen(false)
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to add lead. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Handle lead deletion
+  const handleDeleteLead = async (leadId: string) => {
+    try {
+      await deleteLead({ id: leadId as any })
+      toast({
+        title: "Success!",
+        description: "Lead has been deleted.",
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete lead.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Handle lead to client conversion
+  const handleConvertToClient = async (leadId: string) => {
+    try {
+      await convertToClient({ id: leadId as any })
+      toast({
+        title: "Success!",
+        description: "Lead has been converted to a client!",
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to convert lead to client.",
+        variant: "destructive",
+      })
+    }
   }
 
   const filteredLeads = leads.filter((lead) => {
     const matchesSearch =
       lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      lead.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (lead.company && lead.company.toLowerCase().includes(searchTerm.toLowerCase())) ||
       lead.email.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesStatus = statusFilter === "all" || lead.status === statusFilter
     return matchesSearch && matchesStatus
@@ -110,10 +175,10 @@ export function CRMLeads() {
 
   const leadStats = {
     total: leads.length,
-    new: leads.filter((l) => l.status === "New").length,
-    qualified: leads.filter((l) => l.status === "Qualified").length,
-    proposals: leads.filter((l) => l.status === "Proposal Sent").length,
-    won: leads.filter((l) => l.status === "Won").length,
+    new: leads.filter((l) => l.status === "new").length,
+    qualified: leads.filter((l) => l.status === "qualified").length,
+    proposals: leads.filter((l) => l.status === "proposal").length,
+    won: leads.filter((l) => l.status === "won").length,
   }
 
   return (
@@ -136,66 +201,97 @@ export function CRMLeads() {
               <DialogTitle>Add New Lead</DialogTitle>
               <DialogDescription>Enter the details of your new potential client</DialogDescription>
             </DialogHeader>
-            <div className="grid grid-cols-2 gap-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Full Name</Label>
-                <Input id="name" placeholder="John Doe" />
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="name">Full Name *</Label>
+                  <Input 
+                    id="name" 
+                    placeholder="John Doe" 
+                    {...form.register("name")}
+                  />
+                  {form.formState.errors.name && (
+                    <p className="text-sm text-red-500">{form.formState.errors.name.message}</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email *</Label>
+                  <Input 
+                    id="email" 
+                    type="email" 
+                    placeholder="john@company.com" 
+                    {...form.register("email")}
+                  />
+                  {form.formState.errors.email && (
+                    <p className="text-sm text-red-500">{form.formState.errors.email.message}</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Phone</Label>
+                  <Input 
+                    id="phone" 
+                    placeholder="+1 (555) 123-4567" 
+                    {...form.register("phone")}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="company">Company</Label>
+                  <Input 
+                    id="company" 
+                    placeholder="Company Inc." 
+                    {...form.register("company")}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="estimatedValue">Estimated Value (USD)</Label>
+                  <Input 
+                    id="estimatedValue" 
+                    type="number" 
+                    placeholder="50000" 
+                    {...form.register("estimatedValue", { valueAsNumber: true })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="source">Lead Source</Label>
+                  <Select onValueChange={(value) => form.setValue("source", value)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="How did they find you?" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="website">Website Form</SelectItem>
+                      <SelectItem value="referral">Referral</SelectItem>
+                      <SelectItem value="linkedin">LinkedIn</SelectItem>
+                      <SelectItem value="google">Google Search</SelectItem>
+                      <SelectItem value="social">Social Media</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-2 space-y-2">
+                  <Label htmlFor="notes">Notes</Label>
+                  <Textarea 
+                    id="notes" 
+                    placeholder="Project requirements, timeline, special notes..." 
+                    {...form.register("notes")}
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" placeholder="john@company.com" />
+              <div className="flex justify-end gap-2">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => {
+                    setIsAddLeadOpen(false)
+                    form.reset()
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={isLoading}>
+                  {isLoading ? "Adding..." : "Add Lead"}
+                </Button>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="phone">Phone</Label>
-                <Input id="phone" placeholder="+1 (555) 123-4567" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="company">Company</Label>
-                <Input id="company" placeholder="Company Inc." />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="budget">Budget Range</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select budget range" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="under-10k">Under KSH 1,300,000</SelectItem>
-                    <SelectItem value="10k-25k">KSH 1,300,000 - KSH 3,250,000</SelectItem>
-                    <SelectItem value="25k-50k">KSH 3,250,000 - KSH 6,500,000</SelectItem>
-                    <SelectItem value="50k-75k">KSH 6,500,000 - KSH 9,750,000</SelectItem>
-                    <SelectItem value="75k-100k">KSH 9,750,000 - KSH 13,000,000</SelectItem>
-                    <SelectItem value="over-100k">Over KSH 13,000,000</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="source">Lead Source</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="How did they find you?" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="website">Website Form</SelectItem>
-                    <SelectItem value="referral">Referral</SelectItem>
-                    <SelectItem value="linkedin">LinkedIn</SelectItem>
-                    <SelectItem value="google">Google Search</SelectItem>
-                    <SelectItem value="social">Social Media</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="col-span-2 space-y-2">
-                <Label htmlFor="notes">Notes</Label>
-                <Textarea id="notes" placeholder="Project requirements, timeline, special notes..." />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setIsAddLeadOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={() => setIsAddLeadOpen(false)}>Add Lead</Button>
-            </div>
+            </form>
           </DialogContent>
         </Dialog>
       </div>
@@ -279,11 +375,12 @@ export function CRMLeads() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="New">New</SelectItem>
-                <SelectItem value="Qualified">Qualified</SelectItem>
-                <SelectItem value="Proposal Sent">Proposal Sent</SelectItem>
-                <SelectItem value="Won">Won</SelectItem>
-                <SelectItem value="Lost">Lost</SelectItem>
+                <SelectItem value="new">New</SelectItem>
+                <SelectItem value="contacted">Contacted</SelectItem>
+                <SelectItem value="qualified">Qualified</SelectItem>
+                <SelectItem value="proposal">Proposal</SelectItem>
+                <SelectItem value="won">Won</SelectItem>
+                <SelectItem value="lost">Lost</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -311,7 +408,7 @@ export function CRMLeads() {
             </TableHeader>
             <TableBody>
               {filteredLeads.map((lead) => (
-                <TableRow key={lead.id} className="animate-slide-in">
+                <TableRow key={lead._id} className="animate-slide-in">
                   <TableCell>
                     <div>
                       <div className="font-medium">{lead.name}</div>
@@ -319,39 +416,69 @@ export function CRMLeads() {
                         <Mail className="w-3 h-3" />
                         {lead.email}
                       </div>
-                      <div className="text-sm text-muted-foreground flex items-center gap-1">
-                        <Phone className="w-3 h-3" />
-                        {lead.phone}
-                      </div>
+                      {lead.phone && (
+                        <div className="text-sm text-muted-foreground flex items-center gap-1">
+                          <Phone className="w-3 h-3" />
+                          {lead.phone}
+                        </div>
+                      )}
                     </div>
                   </TableCell>
-                  <TableCell className="font-medium">{lead.company}</TableCell>
-                  <TableCell>{lead.budget}</TableCell>
+                  <TableCell className="font-medium">{lead.company || "N/A"}</TableCell>
                   <TableCell>
-                    <Badge className={statusColors[lead.status]}>{lead.status}</Badge>
+                    {lead.estimatedValue ? convertToKSH(lead.estimatedValue) : "Not specified"}
                   </TableCell>
-                  <TableCell>{lead.source}</TableCell>
+                  <TableCell>
+                    <Badge className={statusColors[lead.status as keyof typeof statusColors]}>
+                      {lead.status.charAt(0).toUpperCase() + lead.status.slice(1)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{lead.source || "Unknown"}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1 text-sm text-muted-foreground">
                       <Calendar className="w-3 h-3" />
-                      {lead.createdAt}
+                      {new Date(lead.createdAt).toLocaleDateString()}
                     </div>
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
+                      {lead.status === "won" && (
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => handleConvertToClient(lead._id)}
+                          className="text-green-600 hover:text-green-700"
+                        >
+                          Convert to Client
+                        </Button>
+                      )}
                       <Button variant="ghost" size="sm">
                         <Eye className="w-4 h-4" />
                       </Button>
                       <Button variant="ghost" size="sm">
                         <Edit className="w-4 h-4" />
                       </Button>
-                      <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => handleDeleteLead(lead._id)}
+                      >
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
                   </TableCell>
                 </TableRow>
               ))}
+              {filteredLeads.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8">
+                    <div className="text-muted-foreground">
+                      {leads.length === 0 ? "No leads found. Add your first lead to get started!" : "No leads match your search criteria."}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </CardContent>
