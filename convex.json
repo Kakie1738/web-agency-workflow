@@ -1,0 +1,10 @@
+{
+  "projectConfig": {
+    "name": "web-agency-workflow",
+    "teamSlug": "your-team",
+    "projectSlug": "web-agency-workflow"
+  },
+  "node": {
+    "version": "18"
+  }
+}

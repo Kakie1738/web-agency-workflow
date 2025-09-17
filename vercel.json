@@ -1,0 +1,11 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "installCommand": "npm install",
+  "devCommand": "npm run dev",
+  "env": {
+    "NEXT_PUBLIC_CONVEX_URL": "https://famous-gull-199.convex.cloud",
+    "CONVEX_DEPLOY_KEY": "dev:famous-gull-199|eyJ2MiI6Ijc4OTllN2Y1OGFjNjQ0N2FhNTgzOGFkNmI0NDUyMDY3In0="
+  }
+}
