@@ -24,5 +24,10 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
   }
 
   const convex = new ConvexReactClient(convexUrl);
-  return <ConvexProvider client={convex}>{children}</ConvexProvider>;
+  
+  return (
+    <ConvexProvider client={convex}>
+      {children}
+    </ConvexProvider>
+  );
 }

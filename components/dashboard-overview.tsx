@@ -1,5 +1,6 @@
 "use client"
 
+import { useUser } from "@clerk/nextjs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -18,6 +19,8 @@ import {
 } from "lucide-react"
 
 export function DashboardOverview() {
+  const { user } = useUser()
+  
   const stats = [
     {
       title: "Active Projects",
@@ -88,8 +91,10 @@ export function DashboardOverview() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Agency Dashboard</h1>
-          <p className="text-muted-foreground mt-1">Welcome back! Here's what's happening with your projects today.</p>
+          <h1 className="text-3xl font-bold text-foreground">
+            {user ? `Welcome back, ${user.firstName || user.fullName || 'User'}!` : 'Agency Dashboard'}
+          </h1>
+          <p className="text-muted-foreground mt-1">Here's what's happening with your projects today.</p>
         </div>
         <Button className="bg-primary hover:bg-primary/90 animate-pulse-glow">
           <Zap className="w-4 h-4 mr-2" />

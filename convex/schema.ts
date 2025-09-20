@@ -2,6 +2,16 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  users: defineTable({
+    userId: v.string(), // Clerk user ID
+    first_name: v.optional(v.string()),
+    last_name: v.optional(v.string()),
+    email: v.string(),
+    image_url: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_user_id", ["userId"]),
+
   clients: defineTable({
     name: v.string(),
     email: v.string(),

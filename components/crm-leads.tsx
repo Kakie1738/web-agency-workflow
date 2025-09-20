@@ -40,8 +40,8 @@ import {
 
 // Lead form validation schema
 const leadSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters"),
-  email: z.string().email("Invalid email address"),
+  name: z.string().transform((val) => val.trim()).pipe(z.string().min(2, "Name must be at least 2 characters")),
+  email: z.string().transform((val) => val.trim()).pipe(z.string().email("Invalid email address")),
   phone: z.string().optional(),
   company: z.string().optional(),
   status: z.enum(["new", "contacted", "qualified", "proposal", "won", "lost"]),
@@ -66,10 +66,14 @@ export function CRMLeads() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [isAddLeadOpen, setIsAddLeadOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [selectedStatus, setSelectedStatus] = useState<string>("new")
+  const [selectedSource, setSelectedSource] = useState<string>("")
   
   // Form handling
   const form = useForm<LeadFormData>({
     resolver: zodResolver(leadSchema),
+    mode: "onSubmit",
+    reValidateMode: "onSubmit",
     defaultValues: {
       name: "",
       email: "",
@@ -78,8 +82,9 @@ export function CRMLeads() {
       status: "new",
       source: "",
       notes: "",
-      estimatedValue: 0,
+      estimatedValue: undefined,
     },
+    shouldFocusError: false,
   })
 
   const statusColors = {
@@ -98,31 +103,55 @@ export function CRMLeads() {
 
   // Handle form submission
   const onSubmit = async (data: LeadFormData) => {
+    console.log("Form submission started with data:", data)
+    
     try {
       setIsLoading(true)
-      await createLead({
-        name: data.name,
-        email: data.email,
-        phone: data.phone,
-        company: data.company,
-        status: data.status,
-        source: data.source,
-        notes: data.notes,
-        estimatedValue: data.estimatedValue,
+      
+      // Prepare data for submission
+      const leadData = {
+        name: data.name.trim(),
+        email: data.email.trim(),
+        phone: data.phone?.trim() || undefined,
+        company: data.company?.trim() || undefined,
+        status: data.status || "new",
+        source: data.source?.trim() || undefined,
+        notes: data.notes?.trim() || undefined,
+        estimatedValue: data.estimatedValue || 0,
         currency: "USD",
-      })
+      }
+      
+      console.log("Submitting lead data to Convex:", leadData)
+      
+      const result = await createLead(leadData)
+      console.log("Convex response:", result)
       
       toast({
         title: "Success!",
         description: "Lead has been added to the database.",
       })
       
-      form.reset()
+      // Reset form
+      form.reset({
+        name: "",
+        email: "",
+        phone: "",
+        company: "",
+        status: "new",
+        source: "",
+        notes: "",
+        estimatedValue: undefined,
+      })
+      form.clearErrors()
+      setSelectedStatus("new")
+      setSelectedSource("")
       setIsAddLeadOpen(false)
+      
     } catch (error) {
+      console.error("Detailed error:", error)
       toast({
         title: "Error",
-        description: "Failed to add lead. Please try again.",
+        description: `Failed to add lead: ${error instanceof Error ? error.message : 'Unknown error'}`,
         variant: "destructive",
       })
     } finally {
@@ -164,21 +193,21 @@ export function CRMLeads() {
     }
   }
 
-  const filteredLeads = leads.filter((lead) => {
+  const filteredLeads = (leads || []).filter((lead) => {
     const matchesSearch =
-      lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (lead.company && lead.company.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      lead.email.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = statusFilter === "all" || lead.status === statusFilter
+      lead?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (lead?.company && lead.company.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      lead?.email?.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesStatus = statusFilter === "all" || lead?.status === statusFilter
     return matchesSearch && matchesStatus
   })
 
   const leadStats = {
-    total: leads.length,
-    new: leads.filter((l) => l.status === "new").length,
-    qualified: leads.filter((l) => l.status === "qualified").length,
-    proposals: leads.filter((l) => l.status === "proposal").length,
-    won: leads.filter((l) => l.status === "won").length,
+    total: leads?.length || 0,
+    new: leads?.filter((l) => l?.status === "new").length || 0,
+    qualified: leads?.filter((l) => l?.status === "qualified").length || 0,
+    proposals: leads?.filter((l) => l?.status === "proposal").length || 0,
+    won: leads?.filter((l) => l?.status === "won").length || 0,
   }
 
   return (
@@ -189,7 +218,44 @@ export function CRMLeads() {
           <h1 className="text-3xl font-bold text-foreground">CRM & Lead Management</h1>
           <p className="text-muted-foreground mt-1">Track and manage your potential clients and opportunities</p>
         </div>
-        <Dialog open={isAddLeadOpen} onOpenChange={setIsAddLeadOpen}>
+        <Dialog 
+          open={isAddLeadOpen} 
+          onOpenChange={(open) => {
+            setIsAddLeadOpen(open)
+            if (open) {
+              // Reset form when dialog opens to ensure clean state
+              form.reset({
+                name: "",
+                email: "",
+                phone: "",
+                company: "",
+                status: "new",
+                source: "",
+                notes: "",
+                estimatedValue: undefined,
+              })
+              form.clearErrors()
+              setSelectedStatus("new")
+              setSelectedSource("")
+            }
+            if (!open) {
+              // Reset form when dialog closes
+              form.reset({
+                name: "",
+                email: "",
+                phone: "",
+                company: "",
+                status: "new",
+                source: "",
+                notes: "",
+                estimatedValue: undefined,
+              })
+              form.clearErrors()
+              setSelectedStatus("new")
+              setSelectedSource("")
+            }
+          }}
+        >
           <DialogTrigger asChild>
             <Button className="bg-primary hover:bg-primary/90 animate-pulse-glow">
               <Plus className="w-4 h-4 mr-2" />
@@ -210,7 +276,7 @@ export function CRMLeads() {
                     placeholder="John Doe" 
                     {...form.register("name")}
                   />
-                  {form.formState.errors.name && (
+                  {form.formState.errors.name && form.formState.isSubmitted && (
                     <p className="text-sm text-red-500">{form.formState.errors.name.message}</p>
                   )}
                 </div>
@@ -222,7 +288,7 @@ export function CRMLeads() {
                     placeholder="john@company.com" 
                     {...form.register("email")}
                   />
-                  {form.formState.errors.email && (
+                  {form.formState.errors.email && form.formState.isSubmitted && (
                     <p className="text-sm text-red-500">{form.formState.errors.email.message}</p>
                   )}
                 </div>
@@ -252,8 +318,45 @@ export function CRMLeads() {
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="status">Status *</Label>
+                  <Select 
+                    value={selectedStatus}
+                    onValueChange={(value) => {
+                      setSelectedStatus(value)
+                      form.setValue("status", value as "new" | "contacted" | "qualified" | "proposal" | "won" | "lost", {
+                        shouldValidate: false,
+                        shouldDirty: true
+                      })
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select lead status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="new">New</SelectItem>
+                      <SelectItem value="contacted">Contacted</SelectItem>
+                      <SelectItem value="qualified">Qualified</SelectItem>
+                      <SelectItem value="proposal">Proposal</SelectItem>
+                      <SelectItem value="won">Won</SelectItem>
+                      <SelectItem value="lost">Lost</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {form.formState.errors.status && form.formState.isSubmitted && (
+                    <p className="text-sm text-red-500">{form.formState.errors.status.message}</p>
+                  )}
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="source">Lead Source</Label>
-                  <Select onValueChange={(value) => form.setValue("source", value)}>
+                  <Select 
+                    value={selectedSource}
+                    onValueChange={(value) => {
+                      setSelectedSource(value)
+                      form.setValue("source", value, {
+                        shouldValidate: false,
+                        shouldDirty: true
+                      })
+                    }}
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder="How did they find you?" />
                     </SelectTrigger>
@@ -281,13 +384,28 @@ export function CRMLeads() {
                   type="button" 
                   variant="outline" 
                   onClick={() => {
+                    form.reset({
+                      name: "",
+                      email: "",
+                      phone: "",
+                      company: "",
+                      status: "new",
+                      source: "",
+                      notes: "",
+                      estimatedValue: undefined,
+                    })
+                    form.clearErrors()
+                    setSelectedStatus("new")
+                    setSelectedSource("")
                     setIsAddLeadOpen(false)
-                    form.reset()
                   }}
                 >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={isLoading}>
+                <Button 
+                  type="submit" 
+                  disabled={isLoading}
+                >
                   {isLoading ? "Adding..." : "Add Lead"}
                 </Button>
               </div>
