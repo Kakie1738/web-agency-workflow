@@ -20,20 +20,42 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  // Only enable Clerk in production if valid keys are present
+  const hasValidClerkKeys = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && 
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.startsWith('pk_')
+
+  if (hasValidClerkKeys) {
+    return (
+      <ClerkProvider>
+        <html lang="en" suppressHydrationWarning>
+          <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
+            <Suspense>
+              <ConvexClientProvider>
+                <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+                  {children}
+                </ThemeProvider>
+              </ConvexClientProvider>
+            </Suspense>
+            <Analytics />
+          </body>
+        </html>
+      </ClerkProvider>
+    )
+  }
+
+  // Fallback without authentication
   return (
-    <ClerkProvider>
-      <html lang="en" suppressHydrationWarning>
-        <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
-          <Suspense>
-            <ConvexClientProvider>
-              <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-                {children}
-              </ThemeProvider>
-            </ConvexClientProvider>
-          </Suspense>
-          <Analytics />
-        </body>
-      </html>
-    </ClerkProvider>
+    <html lang="en" suppressHydrationWarning>
+      <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
+        <Suspense>
+          <ConvexClientProvider>
+            <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+              {children}
+            </ThemeProvider>
+          </ConvexClientProvider>
+        </Suspense>
+        <Analytics />
+      </body>
+    </html>
   )
 }
