@@ -40,14 +40,14 @@ import {
 
 // Lead form validation schema
 const leadSchema = z.object({
-  name: z.string().transform((val) => val.trim()).pipe(z.string().min(2, "Name must be at least 2 characters")),
-  email: z.string().transform((val) => val.trim()).pipe(z.string().email("Invalid email address")),
+  name: z.string().min(1, "Name is required").min(2, "Name must be at least 2 characters"),
+  email: z.string().min(1, "Email is required").email("Invalid email address"),
   phone: z.string().optional(),
   company: z.string().optional(),
   status: z.enum(["new", "contacted", "qualified", "proposal", "won", "lost"]),
   source: z.string().optional(),
   notes: z.string().optional(),
-  estimatedValue: z.number().optional(),
+  estimatedValue: z.number().optional().nullable(),
 })
 
 type LeadFormData = z.infer<typeof leadSchema>
@@ -65,15 +65,18 @@ export function CRMLeads() {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [isAddLeadOpen, setIsAddLeadOpen] = useState(false)
+  const [isViewLeadOpen, setIsViewLeadOpen] = useState(false)
+  const [isEditLeadOpen, setIsEditLeadOpen] = useState(false)
+  const [selectedLead, setSelectedLead] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [selectedStatus, setSelectedStatus] = useState<string>("new")
-  const [selectedSource, setSelectedSource] = useState<string>("")
+  const [selectedSource, setSelectedSource] = useState<string>("")  
   
   // Form handling
   const form = useForm<LeadFormData>({
     resolver: zodResolver(leadSchema),
-    mode: "onSubmit",
-    reValidateMode: "onSubmit",
+    mode: "onChange",
+    reValidateMode: "onChange",
     defaultValues: {
       name: "",
       email: "",
@@ -84,7 +87,15 @@ export function CRMLeads() {
       notes: "",
       estimatedValue: undefined,
     },
-    shouldFocusError: false,
+    shouldFocusError: true,
+  })
+
+  // Edit form handling
+  const editForm = useForm<LeadFormData>({
+    resolver: zodResolver(leadSchema),
+    mode: "onChange",
+    reValidateMode: "onChange",
+    shouldFocusError: true,
   })
 
   const statusColors = {
@@ -104,6 +115,19 @@ export function CRMLeads() {
   // Handle form submission
   const onSubmit = async (data: LeadFormData) => {
     console.log("Form submission started with data:", data)
+    console.log("Form validation errors:", form.formState.errors)
+    console.log("Form is valid:", form.formState.isValid)
+    
+    // Check for validation errors
+    if (!form.formState.isValid) {
+      console.error("Form validation failed:", form.formState.errors)
+      toast({
+        title: "Validation Error",
+        description: "Please check all required fields and try again.",
+        variant: "destructive",
+      })
+      return
+    }
     
     try {
       setIsLoading(true)
@@ -193,6 +217,72 @@ export function CRMLeads() {
     }
   }
 
+  // Handle view lead
+  const handleViewLead = (lead: any) => {
+    setSelectedLead(lead)
+    setIsViewLeadOpen(true)
+  }
+
+  // Handle edit lead
+  const handleEditLead = (lead: any) => {
+    setSelectedLead(lead)
+    editForm.reset({
+      name: lead.name || "",
+      email: lead.email || "",
+      phone: lead.phone || "",
+      company: lead.company || "",
+      status: lead.status || "new",
+      source: lead.source || "",
+      notes: lead.notes || "",
+      estimatedValue: lead.estimatedValue || undefined,
+    })
+    setSelectedStatus(lead.status || "new")
+    setSelectedSource(lead.source || "")
+    setIsEditLeadOpen(true)
+  }
+
+  // Handle edit form submission
+  const onEditSubmit = async (data: LeadFormData) => {
+    if (!selectedLead) return
+    
+    try {
+      setIsLoading(true)
+      
+      const updateData = {
+        id: selectedLead._id,
+        name: data.name?.trim(),
+        email: data.email?.trim(),
+        phone: data.phone?.trim() || undefined,
+        company: data.company?.trim() || undefined,
+        status: data.status,
+        source: data.source?.trim() || undefined,
+        notes: data.notes?.trim() || undefined,
+        estimatedValue: data.estimatedValue || undefined,
+      }
+      
+      await updateLead(updateData)
+      
+      toast({
+        title: "Success!",
+        description: "Lead has been updated successfully.",
+      })
+      
+      setIsEditLeadOpen(false)
+      setSelectedLead(null)
+      editForm.reset()
+      
+    } catch (error) {
+      console.error("Update error:", error)
+      toast({
+        title: "Error",
+        description: "Failed to update lead.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const filteredLeads = (leads || []).filter((lead) => {
     const matchesSearch =
       lead?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -223,33 +313,14 @@ export function CRMLeads() {
           onOpenChange={(open) => {
             setIsAddLeadOpen(open)
             if (open) {
-              // Reset form when dialog opens to ensure clean state
-              form.reset({
-                name: "",
-                email: "",
-                phone: "",
-                company: "",
-                status: "new",
-                source: "",
-                notes: "",
-                estimatedValue: undefined,
-              })
-              form.clearErrors()
+              // Set initial status when opening
               setSelectedStatus("new")
               setSelectedSource("")
+              form.setValue("status", "new")
             }
             if (!open) {
-              // Reset form when dialog closes
-              form.reset({
-                name: "",
-                email: "",
-                phone: "",
-                company: "",
-                status: "new",
-                source: "",
-                notes: "",
-                estimatedValue: undefined,
-              })
+              // Only reset when closing
+              form.reset()
               form.clearErrors()
               setSelectedStatus("new")
               setSelectedSource("")
@@ -276,7 +347,7 @@ export function CRMLeads() {
                     placeholder="John Doe" 
                     {...form.register("name")}
                   />
-                  {form.formState.errors.name && form.formState.isSubmitted && (
+                  {form.formState.errors.name && (
                     <p className="text-sm text-red-500">{form.formState.errors.name.message}</p>
                   )}
                 </div>
@@ -288,7 +359,7 @@ export function CRMLeads() {
                     placeholder="john@company.com" 
                     {...form.register("email")}
                   />
-                  {form.formState.errors.email && form.formState.isSubmitted && (
+                  {form.formState.errors.email && (
                     <p className="text-sm text-red-500">{form.formState.errors.email.message}</p>
                   )}
                 </div>
@@ -314,7 +385,9 @@ export function CRMLeads() {
                     id="estimatedValue" 
                     type="number" 
                     placeholder="50000" 
-                    {...form.register("estimatedValue", { valueAsNumber: true })}
+                    {...form.register("estimatedValue", { 
+                      setValueAs: (value) => value === "" ? undefined : Number(value)
+                    })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -324,7 +397,7 @@ export function CRMLeads() {
                     onValueChange={(value) => {
                       setSelectedStatus(value)
                       form.setValue("status", value as "new" | "contacted" | "qualified" | "proposal" | "won" | "lost", {
-                        shouldValidate: false,
+                        shouldValidate: true,
                         shouldDirty: true
                       })
                     }}
@@ -341,7 +414,7 @@ export function CRMLeads() {
                       <SelectItem value="lost">Lost</SelectItem>
                     </SelectContent>
                   </Select>
-                  {form.formState.errors.status && form.formState.isSubmitted && (
+                  {form.formState.errors.status && (
                     <p className="text-sm text-red-500">{form.formState.errors.status.message}</p>
                   )}
                 </div>
@@ -570,10 +643,20 @@ export function CRMLeads() {
                           Convert to Client
                         </Button>
                       )}
-                      <Button variant="ghost" size="sm">
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => handleViewLead(lead)}
+                        className="text-blue-600 hover:text-blue-700"
+                      >
                         <Eye className="w-4 h-4" />
                       </Button>
-                      <Button variant="ghost" size="sm">
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => handleEditLead(lead)}
+                        className="text-gray-600 hover:text-gray-700"
+                      >
                         <Edit className="w-4 h-4" />
                       </Button>
                       <Button 
@@ -601,6 +684,212 @@ export function CRMLeads() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* View Lead Dialog */}
+      <Dialog open={isViewLeadOpen} onOpenChange={setIsViewLeadOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Lead Details</DialogTitle>
+            <DialogDescription>View lead information</DialogDescription>
+          </DialogHeader>
+          {selectedLead && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Full Name</Label>
+                  <div className="p-2 bg-muted rounded-md">{selectedLead.name}</div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Email</Label>
+                  <div className="p-2 bg-muted rounded-md">{selectedLead.email}</div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Phone</Label>
+                  <div className="p-2 bg-muted rounded-md">{selectedLead.phone || "Not provided"}</div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Company</Label>
+                  <div className="p-2 bg-muted rounded-md">{selectedLead.company || "Not provided"}</div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Status</Label>
+                  <div className="p-2 bg-muted rounded-md">
+                    <Badge className={statusColors[selectedLead.status as keyof typeof statusColors]}>
+                      {selectedLead.status.charAt(0).toUpperCase() + selectedLead.status.slice(1)}
+                    </Badge>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Lead Source</Label>
+                  <div className="p-2 bg-muted rounded-md">{selectedLead.source || "Unknown"}</div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Estimated Value</Label>
+                  <div className="p-2 bg-muted rounded-md">
+                    {selectedLead.estimatedValue ? convertToKSH(selectedLead.estimatedValue) : "Not specified"}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Created</Label>
+                  <div className="p-2 bg-muted rounded-md">
+                    {new Date(selectedLead.createdAt).toLocaleDateString()}
+                  </div>
+                </div>
+              </div>
+              {selectedLead.notes && (
+                <div className="space-y-2">
+                  <Label>Notes</Label>
+                  <div className="p-3 bg-muted rounded-md whitespace-pre-wrap">{selectedLead.notes}</div>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="flex justify-end">
+            <Button onClick={() => setIsViewLeadOpen(false)}>Close</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Lead Dialog */}
+      <Dialog open={isEditLeadOpen} onOpenChange={setIsEditLeadOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Lead</DialogTitle>
+            <DialogDescription>Update lead information</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-name">Full Name *</Label>
+                <Input 
+                  id="edit-name" 
+                  placeholder="John Doe" 
+                  {...editForm.register("name")}
+                />
+                {editForm.formState.errors.name && (
+                  <p className="text-sm text-red-500">{editForm.formState.errors.name.message}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-email">Email *</Label>
+                <Input 
+                  id="edit-email" 
+                  type="email" 
+                  placeholder="john@company.com" 
+                  {...editForm.register("email")}
+                />
+                {editForm.formState.errors.email && (
+                  <p className="text-sm text-red-500">{editForm.formState.errors.email.message}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-phone">Phone</Label>
+                <Input 
+                  id="edit-phone" 
+                  placeholder="+1 (555) 123-4567" 
+                  {...editForm.register("phone")}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-company">Company</Label>
+                <Input 
+                  id="edit-company" 
+                  placeholder="Company Inc." 
+                  {...editForm.register("company")}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-estimatedValue">Estimated Value (USD)</Label>
+                <Input 
+                  id="edit-estimatedValue" 
+                  type="number" 
+                  placeholder="50000" 
+                  {...editForm.register("estimatedValue", { 
+                    setValueAs: (value) => value === "" ? undefined : Number(value)
+                  })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-status">Status *</Label>
+                <Select 
+                  value={selectedStatus}
+                  onValueChange={(value) => {
+                    setSelectedStatus(value)
+                    editForm.setValue("status", value as "new" | "contacted" | "qualified" | "proposal" | "won" | "lost", {
+                      shouldValidate: true,
+                      shouldDirty: true
+                    })
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select lead status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="new">New</SelectItem>
+                    <SelectItem value="contacted">Contacted</SelectItem>
+                    <SelectItem value="qualified">Qualified</SelectItem>
+                    <SelectItem value="proposal">Proposal</SelectItem>
+                    <SelectItem value="won">Won</SelectItem>
+                    <SelectItem value="lost">Lost</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-source">Lead Source</Label>
+                <Select 
+                  value={selectedSource}
+                  onValueChange={(value) => {
+                    setSelectedSource(value)
+                    editForm.setValue("source", value, {
+                      shouldValidate: false,
+                      shouldDirty: true
+                    })
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="How did they find you?" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="website">Website Form</SelectItem>
+                    <SelectItem value="referral">Referral</SelectItem>
+                    <SelectItem value="linkedin">LinkedIn</SelectItem>
+                    <SelectItem value="google">Google Search</SelectItem>
+                    <SelectItem value="social">Social Media</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-2 space-y-2">
+                <Label htmlFor="edit-notes">Notes</Label>
+                <Textarea 
+                  id="edit-notes" 
+                  placeholder="Project requirements, timeline, special notes..." 
+                  {...editForm.register("notes")}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => {
+                  setIsEditLeadOpen(false)
+                  setSelectedLead(null)
+                  editForm.reset()
+                }}
+              >
+                Cancel
+              </Button>
+              <Button 
+                type="submit" 
+                disabled={isLoading}
+              >
+                {isLoading ? "Updating..." : "Update Lead"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

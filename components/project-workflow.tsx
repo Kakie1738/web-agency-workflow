@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useQuery, useMutation } from "convex/react"
 import { api } from "@/convex/_generated/api"
 import { useForm } from "react-hook-form"
@@ -52,18 +52,44 @@ type TaskFormData = z.infer<typeof taskSchema>
 
 export function ProjectWorkflow() {
   // Fetch data from Convex
-  const projects = useQuery(api.projects.getProjects) || []
-  const tasks = useQuery(api.tasks.getTasks) || []
-  const clients = useQuery(api.clients.getClients) || []
+  const projects = useQuery(api.projects.getProjects)
+  const tasks = useQuery(api.tasks.getTasks)
+  const clients = useQuery(api.clients.getClients)
+  
+  // Debug logging with more detail
+  console.log("ProjectWorkflow - Raw projects query result:", projects)
+  console.log("ProjectWorkflow - Raw tasks query result:", tasks)
+  console.log("ProjectWorkflow - Raw clients query result:", clients)
+  console.log("ProjectWorkflow - Projects loading status:", projects === undefined ? "Loading" : "Loaded")
+  
+  // Handle loading state
+  const isLoading = projects === undefined || tasks === undefined || clients === undefined
+  const projectsList = projects || []
+  const tasksList = tasks || []
+  const clientsList = clients || []
+  
+  console.log("ProjectWorkflow - Final arrays:", { 
+    projectsCount: projectsList.length, 
+    tasksCount: tasksList.length, 
+    clientsCount: clientsList.length 
+  })
   
   // Mutations
   const createTask = useMutation(api.tasks.createTask)
   const updateTask = useMutation(api.tasks.updateTask)
   const deleteTask = useMutation(api.tasks.deleteTask)
   
-  const [selectedProject, setSelectedProject] = useState(projects[0])
+  const [selectedProject, setSelectedProject] = useState(projectsList[0])
   const [isAddTaskOpen, setIsAddTaskOpen] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
+  const [isCreateLoading, setIsCreateLoading] = useState(false)
+  
+  // Update selected project when projects change
+  useEffect(() => {
+    if (projectsList.length > 0 && !selectedProject) {
+      console.log("Auto-selecting first project:", projectsList[0])
+      setSelectedProject(projectsList[0])
+    }
+  }, [projectsList, selectedProject])
   
   // Form handling
   const form = useForm<TaskFormData>({
@@ -100,7 +126,7 @@ export function ProjectWorkflow() {
   // Handle task creation
   const onSubmit = async (data: TaskFormData) => {
     try {
-      setIsLoading(true)
+      setIsCreateLoading(true)
       await createTask({
         title: data.title,
         description: data.description,
@@ -125,27 +151,67 @@ export function ProjectWorkflow() {
         variant: "destructive",
       })
     } finally {
-      setIsLoading(false)
+      setIsCreateLoading(false)
     }
   }
   
   // Get client name for project
   const getClientName = (clientId: string) => {
-    const client = clients.find(c => c._id === clientId)
+    const client = clientsList.find(c => c._id === clientId)
     return client ? client.name : "Unknown Client"
   }
   
   // Calculate project progress
   const calculateProgress = (projectId: string) => {
-    const projectTasks = tasks.filter(task => task.projectId === projectId)
+    const projectTasks = tasksList.filter(task => task.projectId === projectId)
     if (projectTasks.length === 0) return 0
     
     const completedTasks = projectTasks.filter(task => task.status === "completed")
     return Math.round((completedTasks.length / projectTasks.length) * 100)
   }
 
+  // Get tasks by status for selected project
   const getTasksByStatus = (status: string) => {
-    return selectedProject?.tasks.filter((task) => task.status === status) || []
+    if (!selectedProject?._id) return []
+    return tasksList.filter(task => task.projectId === selectedProject._id && task.status === status)
+  }
+  
+  // Get project tasks
+  const getProjectTasks = (projectId: string) => {
+    return tasksList.filter(task => task.projectId === projectId)
+  }
+  
+  // Format date for display
+  const formatDate = (timestamp: number | undefined) => {
+    if (!timestamp) return "No due date"
+    return new Date(timestamp).toLocaleDateString()
+  }
+  
+  // Format budget
+  const formatBudget = (budget: number | undefined, currency: string = "USD") => {
+    if (!budget) return "No budget set"
+    return `${currency} ${budget.toLocaleString()}`
+  }
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-foreground">Project Workflow</h1>
+            <p className="text-muted-foreground mt-1">Loading projects...</p>
+          </div>
+        </div>
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+            <h3 className="text-lg font-medium">Loading project data...</h3>
+            <p className="text-muted-foreground">Connecting to database...</p>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -196,7 +262,7 @@ export function ProjectWorkflow() {
                       <SelectValue placeholder="Select project" />
                     </SelectTrigger>
                     <SelectContent>
-                      {projects.map((project) => (
+                      {projectsList.map((project) => (
                         <SelectItem key={project._id} value={project._id}>
                           {project.title}
                         </SelectItem>
@@ -259,8 +325,8 @@ export function ProjectWorkflow() {
                 >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={isLoading}>
-                  {isLoading ? "Creating..." : "Create Task"}
+                <Button type="submit" disabled={isCreateLoading}>
+                  {isCreateLoading ? "Creating..." : "Create Task"}
                 </Button>
               </div>
             </form>
@@ -276,27 +342,38 @@ export function ProjectWorkflow() {
             <CardDescription>Select a project to manage</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {projects.map((project) => (
-              <div
-                key={project.id}
-                className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                  selectedProject?.id === project.id
-                    ? "border-primary bg-primary/10"
-                    : "border-border hover:border-primary/50"
-                }`}
-                onClick={() => setSelectedProject(project)}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="font-medium text-sm">{project.name}</h4>
-                  <Badge variant="outline" className="text-xs">
-                    {project.status}
-                  </Badge>
+            {projectsList.length === 0 ? (
+              <div className="text-center py-8">
+                <FolderOpen className="w-12 h-12 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">No projects found</p>
+                <p className="text-xs text-muted-foreground mt-1">Create a project to get started</p>
+                <div className="mt-4">
+                  <p className="text-xs text-blue-600">Debug: {projectsList.length} projects loaded</p>
                 </div>
-                <p className="text-xs text-muted-foreground mb-2">{project.client}</p>
-                <Progress value={project.progress} className="h-1" />
-                <p className="text-xs text-muted-foreground mt-1">{project.progress}% complete</p>
               </div>
-            ))}
+            ) : (
+              projectsList.map((project) => (
+                <div
+                  key={project._id}
+                  className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                    selectedProject?._id === project._id
+                      ? "border-primary bg-primary/10"
+                      : "border-border hover:border-primary/50"
+                  }`}
+                  onClick={() => setSelectedProject(project)}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-medium text-sm">{project.title}</h4>
+                    <Badge variant="outline" className="text-xs">
+                      {project.status}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-2">{getClientName(project.clientId)}</p>
+                  <Progress value={calculateProgress(project._id)} className="h-1" />
+                  <p className="text-xs text-muted-foreground mt-1">{calculateProgress(project._id)}% complete</p>
+                </div>
+              ))
+            )}}
           </CardContent>
         </Card>
 
@@ -309,18 +386,18 @@ export function ProjectWorkflow() {
                   <div>
                     <CardTitle className="flex items-center gap-2">
                       <FolderOpen className="w-5 h-5 text-primary" />
-                      {selectedProject.name}
+                      {selectedProject.title}
                     </CardTitle>
                     <CardDescription>
-                      {selectedProject.client} • Due: {selectedProject.dueDate} • Budget: {selectedProject.budget}
+                      {getClientName(selectedProject.clientId)} • Due: {formatDate(selectedProject.endDate)} • Budget: {formatBudget(selectedProject.budget, selectedProject.currency)}
                     </CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="outline">{selectedProject.status}</Badge>
-                    <span className="text-sm text-muted-foreground">{selectedProject.progress}% complete</span>
+                    <span className="text-sm text-muted-foreground">{calculateProgress(selectedProject._id)}% complete</span>
                   </div>
                 </div>
-                <Progress value={selectedProject.progress} className="mt-2" />
+                <Progress value={calculateProgress(selectedProject._id)} className="mt-2" />
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
@@ -335,7 +412,7 @@ export function ProjectWorkflow() {
                       </div>
                       <div className="space-y-2 min-h-[200px]">
                         {getTasksByStatus(column.id).map((task) => (
-                          <Card key={task.id} className="p-3 hover:shadow-md transition-shadow cursor-pointer">
+                          <Card key={task._id} className="p-3 hover:shadow-md transition-shadow cursor-pointer">
                             <div className="space-y-2">
                               <div className="flex items-start justify-between">
                                 <h4 className="font-medium text-sm leading-tight">{task.title}</h4>
@@ -343,32 +420,25 @@ export function ProjectWorkflow() {
                                   <MoreHorizontal className="w-3 h-3" />
                                 </Button>
                               </div>
-                              <p className="text-xs text-muted-foreground line-clamp-2">{task.description}</p>
+                              <p className="text-xs text-muted-foreground line-clamp-2">{task.description || "No description"}</p>
                               <div className="flex items-center justify-between">
                                 <Badge className={priorityColors[task.priority]} variant="secondary">
                                   {task.priority}
                                 </Badge>
                                 <div className="flex items-center gap-1 text-xs text-muted-foreground">
                                   <Calendar className="w-3 h-3" />
-                                  {task.dueDate}
+                                  {task.dueDate ? formatDate(task.dueDate) : "No due date"}
                                 </div>
                               </div>
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-1 text-xs text-muted-foreground">
                                   <User className="w-3 h-3" />
-                                  {task.assignee}
-                                </div>
-                                <div className="flex gap-1">
-                                  {task.tags.map((tag) => (
-                                    <Badge key={tag} variant="outline" className="text-xs px-1 py-0">
-                                      {tag}
-                                    </Badge>
-                                  ))}
+                                  {task.assignedTo || "Unassigned"}
                                 </div>
                               </div>
                             </div>
                           </Card>
-                        ))}
+                        ))}}
                       </div>
                     </div>
                   ))}
@@ -387,7 +457,7 @@ export function ProjectWorkflow() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Total Tasks</p>
-                  <p className="text-2xl font-bold">{selectedProject.tasks.length}</p>
+                  <p className="text-2xl font-bold">{getProjectTasks(selectedProject._id).length}</p>
                 </div>
                 <FileText className="w-8 h-8 text-primary" />
               </div>
@@ -397,8 +467,8 @@ export function ProjectWorkflow() {
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Team Members</p>
-                  <p className="text-2xl font-bold">{selectedProject.team.length}</p>
+                  <p className="text-sm text-muted-foreground">Completed Tasks</p>
+                  <p className="text-2xl font-bold">{tasksList.filter(task => task.projectId === selectedProject._id && task.status === "completed").length}</p>
                 </div>
                 <User className="w-8 h-8 text-green-600" />
               </div>
@@ -410,9 +480,10 @@ export function ProjectWorkflow() {
                 <div>
                   <p className="text-sm text-muted-foreground">Days Remaining</p>
                   <p className="text-2xl font-bold">
-                    {Math.ceil(
-                      (new Date(selectedProject.dueDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24),
-                    )}
+                    {selectedProject.endDate 
+                      ? Math.max(0, Math.ceil((selectedProject.endDate - Date.now()) / (1000 * 60 * 60 * 24)))
+                      : "∞"
+                    }
                   </p>
                 </div>
                 <Clock className="w-8 h-8 text-yellow-600" />
@@ -424,7 +495,7 @@ export function ProjectWorkflow() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Budget</p>
-                  <p className="text-2xl font-bold">{selectedProject.budget}</p>
+                  <p className="text-2xl font-bold">{formatBudget(selectedProject.budget, selectedProject.currency)}</p>
                 </div>
                 <FolderOpen className="w-8 h-8 text-purple-600" />
               </div>

@@ -82,6 +82,9 @@ export function ClientPortalConvex() {
   const [isAddProjectOpen, setIsAddProjectOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   
+  // Debug connection status
+  console.log("Connection status - Projects:", projects?.length, "Clients:", clients?.length)
+  
   // Form handling
   const clientForm = useForm<ClientFormData>({
     resolver: zodResolver(clientSchema),
@@ -181,16 +184,30 @@ export function ClientPortalConvex() {
   
   // Handle project creation
   const onProjectSubmit = async (data: ProjectFormData) => {
+    console.log("Project form submission started:", data)
+    console.log("Available clients:", clients)
+    
     try {
       setIsLoading(true)
-      await createProject({
+      
+      // Validate client exists
+      if (!data.clientId) {
+        throw new Error("Please select a client")
+      }
+      
+      const projectData = {
         title: data.title,
         description: data.description,
         clientId: data.clientId as any,
         status: data.status,
         budget: data.budget,
-        currency: data.currency,
-      })
+        currency: data.currency || "USD",
+      }
+      
+      console.log("Submitting project data to Convex:", projectData)
+      
+      const result = await createProject(projectData)
+      console.log("Convex response:", result)
       
       toast({
         title: "Success!",
@@ -199,10 +216,12 @@ export function ClientPortalConvex() {
       
       projectForm.reset()
       setIsAddProjectOpen(false)
+      
     } catch (error) {
+      console.error("Project creation error:", error)
       toast({
         title: "Error",
-        description: "Failed to create project. Please try again.",
+        description: `Failed to create project: ${error instanceof Error ? error.message : 'Unknown error'}`,
         variant: "destructive",
       })
     } finally {
@@ -210,19 +229,22 @@ export function ClientPortalConvex() {
     }
   }
 
-  if (!projects.length) {
+  if (!clients.length) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
-          <h3 className="text-lg font-medium">No projects found</h3>
-          <p className="text-muted-foreground">Your projects will appear here once they're created.</p>
+          <h3 className="text-lg font-medium">Loading data...</h3>
+          <p className="text-muted-foreground">Connecting to database...</p>
+          <div className="mt-4 flex justify-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          </div>
         </div>
       </div>
     )
   }
 
   const currentProject = selectedProject || projects[0]
-  const progress = getProjectProgress(currentProject.status)
+  const progress = currentProject ? getProjectProgress(currentProject.status) : 0
 
   return (
     <div className="space-y-6">
@@ -359,15 +381,24 @@ export function ClientPortalConvex() {
                         <SelectValue placeholder="Select client" />
                       </SelectTrigger>
                       <SelectContent>
-                        {clients.map((client) => (
-                          <SelectItem key={client._id} value={client._id}>
-                            {client.name} - {client.company || client.email}
+                        {clients.length > 0 ? (
+                          clients.map((client) => (
+                            <SelectItem key={client._id} value={client._id}>
+                              {client.name} - {client.company || client.email}
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <SelectItem value="" disabled>
+                            No clients available - Add a client first
                           </SelectItem>
-                        ))}
+                        )}
                       </SelectContent>
                     </Select>
                     {projectForm.formState.errors.clientId && (
                       <p className="text-sm text-red-500">{projectForm.formState.errors.clientId.message}</p>
+                    )}
+                    {clients.length === 0 && (
+                      <p className="text-sm text-yellow-600">⚠️ You need to add a client before creating a project.</p>
                     )}
                   </div>
                   <div className="space-y-2">
@@ -474,166 +505,193 @@ export function ClientPortalConvex() {
         </Card>
       )}
 
-      {/* Project Overview */}
-      <Card className="glass-effect">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <MessageSquare className="w-5 h-5 text-primary" />
-                {currentProject.title}
-              </CardTitle>
-              <CardDescription>{currentProject.description}</CardDescription>
-            </div>
-            <div className="flex items-center gap-4">
-              <Badge className={statusColors[currentProject.status as keyof typeof statusColors]}>
-                {currentProject.status.replace('_', ' ')}
-              </Badge>
-              <span className="text-sm text-muted-foreground">{progress}% complete</span>
-            </div>
-          </div>
-          <div className="mt-4">
-            <div className="flex items-center justify-between text-sm text-muted-foreground mb-2">
-              <span>Project Progress</span>
-              <span>{progress}%</span>
-            </div>
-            <Progress value={progress} className="h-2" />
-          </div>
-        </CardHeader>
-      </Card>
-
-      {/* Project Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {/* Project Overview or Empty State */}
+      {currentProject ? (
         <Card className="glass-effect">
-          <CardContent className="p-4">
+          <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Budget</p>
-                <p className="text-2xl font-bold">
-                  {currentProject.budget ? convertToKSH(currentProject.budget) : 'TBD'}
-                </p>
+                <CardTitle className="flex items-center gap-2">
+                  <MessageSquare className="w-5 h-5 text-primary" />
+                  {currentProject.title}
+                </CardTitle>
+                <CardDescription>{currentProject.description}</CardDescription>
               </div>
-              <DollarSign className="w-8 h-8 text-green-600" />
+              <div className="flex items-center gap-4">
+                <Badge className={statusColors[currentProject.status as keyof typeof statusColors]}>
+                  {currentProject.status.replace('_', ' ')}
+                </Badge>
+                <span className="text-sm text-muted-foreground">{progress}% complete</span>
+              </div>
+            </div>
+            <div className="mt-4">
+              <div className="flex items-center justify-between text-sm text-muted-foreground mb-2">
+                <span>Project Progress</span>
+                <span>{progress}%</span>
+              </div>
+              <Progress value={progress} className="h-2" />
+            </div>
+          </CardHeader>
+        </Card>
+      ) : (
+        <Card className="glass-effect">
+          <CardHeader>
+            <div className="text-center py-12">
+              <MessageSquare className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+              <CardTitle className="mb-2">No Projects Yet</CardTitle>
+              <CardDescription className="mb-4">
+                Create your first project to start tracking progress and collaborating with your development team.
+              </CardDescription>
+              <Button 
+                onClick={() => setIsAddProjectOpen(true)}
+                className="bg-primary hover:bg-primary/90"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Create Your First Project
+              </Button>
+            </div>
+          </CardHeader>
+        </Card>
+      )}
+
+      {/* Project Stats - only show if we have a current project */}
+      {currentProject && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Card className="glass-effect">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Budget</p>
+                  <p className="text-2xl font-bold">
+                    {currentProject.budget ? convertToKSH(currentProject.budget) : 'TBD'}
+                  </p>
+                </div>
+                <DollarSign className="w-8 h-8 text-green-600" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="glass-effect">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Days Remaining</p>
+                  <p className="text-2xl font-bold">
+                    {currentProject.endDate 
+                      ? Math.max(0, Math.ceil((currentProject.endDate - Date.now()) / (1000 * 60 * 60 * 24)))
+                      : 'TBD'
+                    }
+                  </p>
+                </div>
+                <Clock className="w-8 h-8 text-yellow-600" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="glass-effect">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Projects</p>
+                  <p className="text-2xl font-bold">{analytics?.total || 0}</p>
+                </div>
+                <FileText className="w-8 h-8 text-blue-600" />
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="glass-effect">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">Completed</p>
+                  <p className="text-2xl font-bold">{analytics?.completed || 0}</p>
+                </div>
+                <CheckCircle className="w-8 h-8 text-green-600" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Real-time Project Updates - only show if we have a current project */}
+      {currentProject && (
+        <Card className="glass-effect">
+          <CardHeader>
+            <CardTitle>Project Status</CardTitle>
+            <CardDescription>Real-time updates from Convex database</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
+                <div>
+                  <h4 className="font-medium">Current Phase</h4>
+                  <p className="text-sm text-muted-foreground">
+                    Your project is currently in the {currentProject.status.replace('_', ' ')} phase
+                  </p>
+                </div>
+                <Badge className={statusColors[currentProject.status as keyof typeof statusColors]}>
+                  {currentProject.status.replace('_', ' ')}
+                </Badge>
+              </div>
+              
+              {currentProject.startDate && (
+                <div className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
+                  <div>
+                    <h4 className="font-medium">Start Date</h4>
+                    <p className="text-sm text-muted-foreground">
+                      {new Date(currentProject.startDate).toLocaleDateString()}
+                    </p>
+                  </div>
+                </div>
+              )}
+              
+              {currentProject.endDate && (
+                <div className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
+                  <div>
+                    <h4 className="font-medium">Expected Completion</h4>
+                    <p className="text-sm text-muted-foreground">
+                      {new Date(currentProject.endDate).toLocaleDateString()}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Interactive Actions - only show if we have a current project */}
+      {currentProject && (
         <Card className="glass-effect">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Days Remaining</p>
-                <p className="text-2xl font-bold">
-                  {currentProject.endDate 
-                    ? Math.max(0, Math.ceil((currentProject.endDate - Date.now()) / (1000 * 60 * 60 * 24)))
-                    : 'TBD'
+          <CardHeader>
+            <CardTitle>Quick Actions</CardTitle>
+            <CardDescription>Interact with your project data</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-4">
+              <Button 
+                onClick={() => handleProjectUpdate(currentProject._id, { status: 'review' })}
+                disabled={currentProject.status === 'review' || currentProject.status === 'completed'}
+              >
+                Request Review
+              </Button>
+              <Button 
+                variant="outline"
+                onClick={async () => {
+                  if (currentProject.budget) {
+                    await recordRevenue({
+                      amount: currentProject.budget,
+                      currency: currentProject.currency || 'USD',
+                      projectId: currentProject._id,
+                      description: `Revenue from ${currentProject.title}`
+                    })
                   }
-                </p>
-              </div>
-              <Clock className="w-8 h-8 text-yellow-600" />
+                }}
+              >
+                Record Payment
+              </Button>
             </div>
           </CardContent>
         </Card>
-        <Card className="glass-effect">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Total Projects</p>
-                <p className="text-2xl font-bold">{analytics?.total || 0}</p>
-              </div>
-              <FileText className="w-8 h-8 text-blue-600" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="glass-effect">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Completed</p>
-                <p className="text-2xl font-bold">{analytics?.completed || 0}</p>
-              </div>
-              <CheckCircle className="w-8 h-8 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Real-time Project Updates */}
-      <Card className="glass-effect">
-        <CardHeader>
-          <CardTitle>Project Status</CardTitle>
-          <CardDescription>Real-time updates from Convex database</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
-              <div>
-                <h4 className="font-medium">Current Phase</h4>
-                <p className="text-sm text-muted-foreground">
-                  Your project is currently in the {currentProject.status.replace('_', ' ')} phase
-                </p>
-              </div>
-              <Badge className={statusColors[currentProject.status as keyof typeof statusColors]}>
-                {currentProject.status.replace('_', ' ')}
-              </Badge>
-            </div>
-            
-            {currentProject.startDate && (
-              <div className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
-                <div>
-                  <h4 className="font-medium">Start Date</h4>
-                  <p className="text-sm text-muted-foreground">
-                    {new Date(currentProject.startDate).toLocaleDateString()}
-                  </p>
-                </div>
-              </div>
-            )}
-            
-            {currentProject.endDate && (
-              <div className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
-                <div>
-                  <h4 className="font-medium">Expected Completion</h4>
-                  <p className="text-sm text-muted-foreground">
-                    {new Date(currentProject.endDate).toLocaleDateString()}
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Interactive Actions */}
-      <Card className="glass-effect">
-        <CardHeader>
-          <CardTitle>Quick Actions</CardTitle>
-          <CardDescription>Interact with your project data</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex gap-4">
-            <Button 
-              onClick={() => handleProjectUpdate(currentProject._id, { status: 'review' })}
-              disabled={currentProject.status === 'review' || currentProject.status === 'completed'}
-            >
-              Request Review
-            </Button>
-            <Button 
-              variant="outline"
-              onClick={async () => {
-                if (currentProject.budget) {
-                  await recordRevenue({
-                    amount: currentProject.budget,
-                    currency: currentProject.currency || 'USD',
-                    projectId: currentProject._id,
-                    description: `Revenue from ${currentProject.title}`
-                  })
-                }
-              }}
-            >
-              Record Payment
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      )}
     </div>
   )
 }
