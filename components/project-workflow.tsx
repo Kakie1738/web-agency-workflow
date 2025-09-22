@@ -14,6 +14,13 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -35,6 +42,9 @@ import {
   TestTube,
   Rocket,
   MoreHorizontal,
+  Edit,
+  Trash2,
+  Eye,
 } from "lucide-react"
 
 // Task form validation schema
@@ -82,6 +92,10 @@ export function ProjectWorkflow() {
   const [selectedProject, setSelectedProject] = useState(projectsList[0])
   const [isAddTaskOpen, setIsAddTaskOpen] = useState(false)
   const [isCreateLoading, setIsCreateLoading] = useState(false)
+  const [isEditTaskOpen, setIsEditTaskOpen] = useState(false)
+  const [isViewTaskOpen, setIsViewTaskOpen] = useState(false)
+  const [selectedTask, setSelectedTask] = useState<any>(null)
+  const [isDeleteLoading, setIsDeleteLoading] = useState(false)
   
   // Update selected project when projects change
   useEffect(() => {
@@ -93,6 +107,19 @@ export function ProjectWorkflow() {
   
   // Form handling
   const form = useForm<TaskFormData>({
+    resolver: zodResolver(taskSchema),
+    defaultValues: {
+      title: "",
+      description: "",
+      projectId: "",
+      assignedTo: "",
+      status: "todo",
+      priority: "medium",
+      dueDate: "",
+    },
+  })
+  
+  const editForm = useForm<TaskFormData>({
     resolver: zodResolver(taskSchema),
     defaultValues: {
       title: "",
@@ -153,6 +180,82 @@ export function ProjectWorkflow() {
     } finally {
       setIsCreateLoading(false)
     }
+  }
+  
+  // Handle task editing
+  const onEditSubmit = async (data: TaskFormData) => {
+    if (!selectedTask) return
+    
+    try {
+      setIsCreateLoading(true)
+      await updateTask({
+        id: selectedTask._id,
+        title: data.title,
+        description: data.description,
+        assignedTo: data.assignedTo,
+        status: data.status,
+        priority: data.priority,
+        dueDate: data.dueDate ? new Date(data.dueDate).getTime() : undefined,
+      })
+      
+      toast({
+        title: "Success!",
+        description: "Task has been updated successfully.",
+      })
+      
+      setIsEditTaskOpen(false)
+      setSelectedTask(null)
+      editForm.reset()
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update task. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsCreateLoading(false)
+    }
+  }
+  
+  // Handle task deletion
+  const handleDeleteTask = async (taskId: any) => {
+    try {
+      setIsDeleteLoading(true)
+      // @ts-ignore - Convex ID type compatibility
+      await deleteTask({ id: taskId } as any)
+      
+      toast({
+        title: "Success!",
+        description: "Task has been deleted successfully.",
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete task. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsDeleteLoading(false)
+    }
+  }
+  
+  // Handle task actions
+  const handleViewTask = (task: any) => {
+    setSelectedTask(task)
+    setIsViewTaskOpen(true)
+  }
+  
+  const handleEditTask = (task: any) => {
+    setSelectedTask(task)
+    editForm.reset({
+      title: task.title,
+      description: task.description || "",
+      assignedTo: task.assignedTo || "",
+      status: task.status,
+      priority: task.priority,
+      dueDate: task.dueDate ? new Date(task.dueDate).toISOString().split('T')[0] : "",
+    })
+    setIsEditTaskOpen(true)
   }
   
   // Get client name for project
@@ -373,7 +476,7 @@ export function ProjectWorkflow() {
                   <p className="text-xs text-muted-foreground mt-1">{calculateProgress(project._id)}% complete</p>
                 </div>
               ))
-            )}}
+            )}
           </CardContent>
         </Card>
 
@@ -416,9 +519,32 @@ export function ProjectWorkflow() {
                             <div className="space-y-2">
                               <div className="flex items-start justify-between">
                                 <h4 className="font-medium text-sm leading-tight">{task.title}</h4>
-                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                                  <MoreHorizontal className="w-3 h-3" />
-                                </Button>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                                      <MoreHorizontal className="w-3 h-3" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-40">
+                                    <DropdownMenuItem onClick={() => handleViewTask(task)}>
+                                      <Eye className="w-4 h-4 mr-2" />
+                                      View Details
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handleEditTask(task)}>
+                                      <Edit className="w-4 h-4 mr-2" />
+                                      Edit Task
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem 
+                                      onClick={() => handleDeleteTask(task._id)}
+                                      className="text-destructive focus:text-destructive"
+                                      disabled={isDeleteLoading}
+                                    >
+                                      <Trash2 className="w-4 h-4 mr-2" />
+                                      {isDeleteLoading ? "Deleting..." : "Delete Task"}
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               </div>
                               <p className="text-xs text-muted-foreground line-clamp-2">{task.description || "No description"}</p>
                               <div className="flex items-center justify-between">
@@ -438,7 +564,7 @@ export function ProjectWorkflow() {
                               </div>
                             </div>
                           </Card>
-                        ))}}
+                        ))}
                       </div>
                     </div>
                   ))}
@@ -503,6 +629,170 @@ export function ProjectWorkflow() {
           </Card>
         </div>
       )}
+      
+      {/* View Task Dialog */}
+      <Dialog open={isViewTaskOpen} onOpenChange={setIsViewTaskOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Task Details</DialogTitle>
+            <DialogDescription>View task information</DialogDescription>
+          </DialogHeader>
+          {selectedTask && (
+            <div className="space-y-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Title</Label>
+                  <div className="p-2 bg-muted rounded-md">{selectedTask.title}</div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Status</Label>
+                  <Badge className="w-fit">{selectedTask.status.replace('_', ' ')}</Badge>
+                </div>
+                <div className="space-y-2">
+                  <Label>Priority</Label>
+                  {/* @ts-ignore - Priority color mapping */}
+                  <Badge 
+                    className={selectedTask?.priority === 'high' ? priorityColors.high : 
+                              selectedTask?.priority === 'medium' ? priorityColors.medium : 
+                              selectedTask?.priority === 'low' ? priorityColors.low : 
+                              "bg-gray-100 text-gray-800"} 
+                    variant="secondary"
+                  >
+                    {selectedTask.priority}
+                  </Badge>
+                </div>
+                <div className="space-y-2">
+                  <Label>Assigned To</Label>
+                  <div className="p-2 bg-muted rounded-md">{selectedTask.assignedTo || "Unassigned"}</div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Due Date</Label>
+                  <div className="p-2 bg-muted rounded-md">{formatDate(selectedTask.dueDate)}</div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Created</Label>
+                  <div className="p-2 bg-muted rounded-md">
+                    {new Date(selectedTask.createdAt || selectedTask._creationTime).toLocaleDateString()}
+                  </div>
+                </div>
+              </div>
+              {selectedTask.description && (
+                <div className="space-y-2">
+                  <Label>Description</Label>
+                  <div className="p-3 bg-muted rounded-md whitespace-pre-wrap">{selectedTask.description}</div>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setIsViewTaskOpen(false)}>Close</Button>
+            <Button onClick={() => {
+              setIsViewTaskOpen(false)
+              if (selectedTask) handleEditTask(selectedTask)
+            }}>
+              Edit Task
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Edit Task Dialog */}
+      <Dialog open={isEditTaskOpen} onOpenChange={setIsEditTaskOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Task</DialogTitle>
+            <DialogDescription>Update task information</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 py-4">
+              <div className="col-span-2 space-y-2">
+                <Label htmlFor="edit-task-title">Task Title *</Label>
+                <Input 
+                  id="edit-task-title" 
+                  placeholder="Enter task title" 
+                  {...editForm.register("title")}
+                />
+                {editForm.formState.errors.title && (
+                  <p className="text-sm text-red-500">{editForm.formState.errors.title.message}</p>
+                )}
+              </div>
+              <div className="col-span-2 space-y-2">
+                <Label htmlFor="edit-task-description">Description</Label>
+                <Textarea 
+                  id="edit-task-description" 
+                  placeholder="Describe the task requirements..." 
+                  {...editForm.register("description")}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-assignee">Assignee</Label>
+                <Input 
+                  id="edit-assignee" 
+                  placeholder="Team member name" 
+                  {...editForm.register("assignedTo")}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-priority">Priority</Label>
+                <Select 
+                  value={editForm.watch("priority")} 
+                  onValueChange={(value) => editForm.setValue("priority", value as any)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-due-date">Due Date</Label>
+                <Input 
+                  id="edit-due-date" 
+                  type="date" 
+                  {...editForm.register("dueDate")}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-status">Status</Label>
+                <Select 
+                  value={editForm.watch("status")} 
+                  onValueChange={(value) => editForm.setValue("status", value as any)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todo">To Do</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="review">Review</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => {
+                  setIsEditTaskOpen(false)
+                  setSelectedTask(null)
+                  editForm.reset()
+                }}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isCreateLoading}>
+                {isCreateLoading ? "Updating..." : "Update Task"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

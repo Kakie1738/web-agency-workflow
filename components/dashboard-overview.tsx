@@ -2,12 +2,29 @@
 
 import { useState, useEffect } from "react"
 import { useUser } from "@clerk/nextjs"
-import { useQuery } from "convex/react"
+import { useQuery, useMutation } from "convex/react"
 import { api } from "@/convex/_generated/api"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { toast } from "@/components/ui/use-toast"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import * as z from "zod"
 import {
   TrendingUp,
   Users,
@@ -19,11 +36,46 @@ import {
   Target,
   Zap,
   ArrowRight,
+  Plus,
 } from "lucide-react"
+
+// Form validation schemas
+const leadSchema = z.object({
+  name: z.string().min(1, "Name is required").min(2, "Name must be at least 2 characters"),
+  email: z.string().min(1, "Email is required").email("Invalid email address"),
+  phone: z.string().optional(),
+  company: z.string().optional(),
+  status: z.enum(["new", "contacted", "qualified", "proposal", "won", "lost"]),
+  source: z.string().optional(),
+  notes: z.string().optional(),
+  estimatedValue: z.number().optional().nullable(),
+})
+
+const projectSchema = z.object({
+  title: z.string().min(1, "Title is required"),
+  description: z.string().optional(),
+  clientId: z.string().min(1, "Client is required"),
+  budget: z.number().optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  status: z.enum(["planning", "in_progress", "review", "completed"]),
+})
+
+type LeadFormData = z.infer<typeof leadSchema>
+type ProjectFormData = z.infer<typeof projectSchema>
 
 export function DashboardOverview() {
   const { user } = useUser()
+  const router = useRouter()
   const [isClient, setIsClient] = useState(false)
+  
+  // Dialog states
+  const [isQuickActionsOpen, setIsQuickActionsOpen] = useState(false)
+  const [isAddLeadOpen, setIsAddLeadOpen] = useState(false)
+  const [isNewProjectOpen, setIsNewProjectOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [selectedStatus, setSelectedStatus] = useState<string>("new")
+  const [selectedSource, setSelectedSource] = useState<string>("")
   
   // Ensure we're on the client side to prevent hydration mismatches
   useEffect(() => {
@@ -38,6 +90,79 @@ export function DashboardOverview() {
   const revenueMetrics = useQuery(api.analytics.getRevenueMetrics)
   const projectMetrics = useQuery(api.analytics.getProjectMetrics)
   const leadMetrics = useQuery(api.analytics.getLeadMetrics)
+  
+  // Mutations for database operations
+  const createLead = useMutation(api.leads.createLead)
+  const createProject = useMutation(api.projects.createProject)
+  const createClient = useMutation(api.clients.createClient)
+  
+  // Helper function to create sample data
+  const createSampleData = async () => {
+    if (clients.length === 0) {
+      // Create sample clients
+      try {
+        await createClient({
+          name: "Sarah Johnson",
+          email: "sarah@techstartup.com",
+          phone: "+254 712 345 678",
+          company: "TechStartup Kenya",
+          status: "active",
+        })
+        
+        await createClient({
+          name: "Michael Rodriguez",
+          email: "michael@ecommerceplus.co.ke",
+          phone: "+254 798 765 432",
+          company: "EcommercePlus",
+          status: "active",
+        })
+        
+        toast({
+          title: "Sample clients created!",
+          description: "You can now create projects for these clients.",
+        })
+      } catch (error) {
+        console.error("Error creating sample clients:", error)
+      }
+    }
+  }
+  
+  // Auto-create sample clients if none exist
+  useEffect(() => {
+    if (isClient && clients.length === 0 && projects.length === 0) {
+      createSampleData()
+    }
+  }, [isClient, clients.length, projects.length])
+  
+  // Form handling
+  const leadForm = useForm<LeadFormData>({
+    resolver: zodResolver(leadSchema),
+    mode: "onChange",
+    defaultValues: {
+      name: "",
+      email: "",
+      phone: "",
+      company: "",
+      status: "new",
+      source: "",
+      notes: "",
+      estimatedValue: undefined,
+    },
+  })
+  
+  const projectForm = useForm<ProjectFormData>({
+    resolver: zodResolver(projectSchema),
+    mode: "onChange",
+    defaultValues: {
+      title: "",
+      description: "",
+      clientId: "",
+      budget: undefined,
+      startDate: "",
+      endDate: "",
+      status: "planning",
+    },
+  })
   
   // Calculate real metrics
   const activeProjects = projects.filter(p => p.status === 'in_progress' || p.status === 'planning')
@@ -90,6 +215,103 @@ export function DashboardOverview() {
       return (l.createdAt || 0) > weekAgo
     })
     return recentLeads.length > 0 ? `+${recentLeads.length} new leads` : 'No new leads'
+  }
+  
+  // Handle form submissions
+  const onLeadSubmit = async (data: LeadFormData) => {
+    try {
+      setIsLoading(true)
+      
+      const leadData = {
+        name: data.name.trim(),
+        email: data.email.trim(),
+        phone: data.phone?.trim() || undefined,
+        company: data.company?.trim() || undefined,
+        status: data.status || "new",
+        source: data.source?.trim() || undefined,
+        notes: data.notes?.trim() || undefined,
+        estimatedValue: data.estimatedValue || 0,
+        currency: "USD",
+      }
+      
+      await createLead(leadData)
+      
+      toast({
+        title: "Success!",
+        description: "Lead has been added successfully.",
+      })
+      
+      leadForm.reset()
+      setSelectedStatus("new")
+      setSelectedSource("")
+      setIsAddLeadOpen(false)
+      
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to add lead. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+  
+  const onProjectSubmit = async (data: ProjectFormData) => {
+    try {
+      setIsLoading(true)
+      
+      const projectData = {
+        title: data.title.trim(),
+        description: data.description?.trim() || "",
+        clientId: data.clientId as any,
+        budget: data.budget || 0,
+        currency: "USD",
+        startDate: data.startDate ? new Date(data.startDate).getTime() : Date.now(),
+        endDate: data.endDate ? new Date(data.endDate).getTime() : undefined,
+        status: data.status,
+      }
+      
+      await createProject(projectData)
+      
+      toast({
+        title: "Success!",
+        description: "Project has been created successfully.",
+      })
+      
+      projectForm.reset()
+      setIsNewProjectOpen(false)
+      
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to create project. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+  
+  // Navigation handlers
+  const handleQuickAction = (action: string) => {
+    switch (action) {
+      case 'add-lead':
+        setIsAddLeadOpen(true)
+        break
+      case 'new-project':
+        setIsNewProjectOpen(true)
+        break
+      case 'qa-checklist':
+        router.push('/qa')
+        break
+      case 'view-reports':
+        router.push('/analytics')
+        break
+      default:
+        break
+    }
+    setIsQuickActionsOpen(false)
   }
   
   const stats = [
@@ -215,10 +437,54 @@ export function DashboardOverview() {
           </h1>
           <p className="text-muted-foreground mt-1">Here's what's happening with your projects today.</p>
         </div>
-        <Button className="bg-primary hover:bg-primary/90 animate-pulse-glow">
-          <Zap className="w-4 h-4 mr-2" />
-          Quick Actions
-        </Button>
+        <Dialog open={isQuickActionsOpen} onOpenChange={setIsQuickActionsOpen}>
+          <DialogTrigger asChild>
+            <Button className="bg-primary hover:bg-primary/90 animate-pulse-glow">
+              <Zap className="w-4 h-4 mr-2" />
+              Quick Actions
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Quick Actions</DialogTitle>
+              <DialogDescription>Choose an action to perform</DialogDescription>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-4 py-4">
+              <Button 
+                variant="outline" 
+                className="h-20 flex-col gap-2"
+                onClick={() => handleQuickAction('add-lead')}
+              >
+                <Users className="w-6 h-6" />
+                <span className="text-sm">Add Lead</span>
+              </Button>
+              <Button 
+                variant="outline" 
+                className="h-20 flex-col gap-2"
+                onClick={() => handleQuickAction('new-project')}
+              >
+                <FolderOpen className="w-6 h-6" />
+                <span className="text-sm">New Project</span>
+              </Button>
+              <Button 
+                variant="outline" 
+                className="h-20 flex-col gap-2"
+                onClick={() => handleQuickAction('qa-checklist')}
+              >
+                <CheckCircle className="w-6 h-6" />
+                <span className="text-sm">QA Checklist</span>
+              </Button>
+              <Button 
+                variant="outline" 
+                className="h-20 flex-col gap-2"
+                onClick={() => handleQuickAction('view-reports')}
+              >
+                <TrendingUp className="w-6 h-6" />
+                <span className="text-sm">View Reports</span>
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Stats Grid */}
@@ -289,7 +555,11 @@ export function DashboardOverview() {
                 <p className="text-xs text-muted-foreground mt-1">Create a project to get started</p>
               </div>
             )}
-            <Button variant="outline" className="w-full bg-transparent">
+            <Button 
+              variant="outline" 
+              className="w-full bg-transparent"
+              onClick={() => router.push('/projects')}
+            >
               View All Projects
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
@@ -342,7 +612,11 @@ export function DashboardOverview() {
                 <p className="text-xs text-muted-foreground mt-1">Create tasks to organize your work</p>
               </div>
             )}
-            <Button variant="outline" className="w-full bg-transparent">
+            <Button 
+              variant="outline" 
+              className="w-full bg-transparent"
+              onClick={() => router.push('/projects')}
+            >
               View Full Calendar
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
@@ -358,25 +632,278 @@ export function DashboardOverview() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Button variant="outline" className="h-20 flex-col gap-2 bg-transparent">
+            <Button 
+              variant="outline" 
+              className="h-20 flex-col gap-2 bg-transparent"
+              onClick={() => setIsAddLeadOpen(true)}
+            >
               <Users className="w-6 h-6" />
               <span className="text-sm">Add Lead</span>
             </Button>
-            <Button variant="outline" className="h-20 flex-col gap-2 bg-transparent">
+            <Button 
+              variant="outline" 
+              className="h-20 flex-col gap-2 bg-transparent"
+              onClick={() => setIsNewProjectOpen(true)}
+            >
               <FolderOpen className="w-6 h-6" />
               <span className="text-sm">New Project</span>
             </Button>
-            <Button variant="outline" className="h-20 flex-col gap-2 bg-transparent">
+            <Button 
+              variant="outline" 
+              className="h-20 flex-col gap-2 bg-transparent"
+              onClick={() => router.push('/qa')}
+            >
               <CheckCircle className="w-6 h-6" />
               <span className="text-sm">QA Checklist</span>
             </Button>
-            <Button variant="outline" className="h-20 flex-col gap-2 bg-transparent">
+            <Button 
+              variant="outline" 
+              className="h-20 flex-col gap-2 bg-transparent"
+              onClick={() => router.push('/analytics')}
+            >
               <TrendingUp className="w-6 h-6" />
               <span className="text-sm">View Reports</span>
             </Button>
           </div>
         </CardContent>
       </Card>
+      
+      {/* Add Lead Dialog */}
+      <Dialog open={isAddLeadOpen} onOpenChange={setIsAddLeadOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Add New Lead</DialogTitle>
+            <DialogDescription>Enter the details of your new potential client</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={leadForm.handleSubmit(onLeadSubmit)} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Full Name *</Label>
+                <Input 
+                  id="name" 
+                  placeholder="John Doe" 
+                  {...leadForm.register("name")}
+                />
+                {leadForm.formState.errors.name && (
+                  <p className="text-sm text-red-500">{leadForm.formState.errors.name.message}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">Email *</Label>
+                <Input 
+                  id="email" 
+                  type="email" 
+                  placeholder="john@company.com" 
+                  {...leadForm.register("email")}
+                />
+                {leadForm.formState.errors.email && (
+                  <p className="text-sm text-red-500">{leadForm.formState.errors.email.message}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="phone">Phone</Label>
+                <Input 
+                  id="phone" 
+                  type="tel" 
+                  placeholder="+1 (555) 123-4567" 
+                  {...leadForm.register("phone")}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="company">Company</Label>
+                <Input 
+                  id="company" 
+                  placeholder="Acme Corp" 
+                  {...leadForm.register("company")}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="estimatedValue">Estimated Value (USD)</Label>
+                <Input 
+                  id="estimatedValue" 
+                  type="number" 
+                  placeholder="5000" 
+                  {...leadForm.register("estimatedValue", { valueAsNumber: true })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="status">Status *</Label>
+                <Select 
+                  value={selectedStatus}
+                  onValueChange={(value) => {
+                    setSelectedStatus(value)
+                    leadForm.setValue("status", value as "new" | "contacted" | "qualified" | "proposal" | "won" | "lost")
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select lead status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="new">New</SelectItem>
+                    <SelectItem value="contacted">Contacted</SelectItem>
+                    <SelectItem value="qualified">Qualified</SelectItem>
+                    <SelectItem value="proposal">Proposal</SelectItem>
+                    <SelectItem value="won">Won</SelectItem>
+                    <SelectItem value="lost">Lost</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="source">Lead Source</Label>
+                <Select 
+                  value={selectedSource}
+                  onValueChange={(value) => {
+                    setSelectedSource(value)
+                    leadForm.setValue("source", value)
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="How did they find you?" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="website">Website Form</SelectItem>
+                    <SelectItem value="referral">Referral</SelectItem>
+                    <SelectItem value="linkedin">LinkedIn</SelectItem>
+                    <SelectItem value="google">Google Search</SelectItem>
+                    <SelectItem value="social">Social Media</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-2 space-y-2">
+                <Label htmlFor="notes">Notes</Label>
+                <Textarea 
+                  id="notes" 
+                  placeholder="Project requirements, timeline, special notes..." 
+                  {...leadForm.register("notes")}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => {
+                  leadForm.reset()
+                  setSelectedStatus("new")
+                  setSelectedSource("")
+                  setIsAddLeadOpen(false)
+                }}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isLoading}>
+                {isLoading ? "Adding..." : "Add Lead"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+      
+      {/* New Project Dialog */}
+      <Dialog open={isNewProjectOpen} onOpenChange={setIsNewProjectOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Create New Project</DialogTitle>
+            <DialogDescription>Add a new project to your workflow</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={projectForm.handleSubmit(onProjectSubmit)} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 py-4">
+              <div className="col-span-2 space-y-2">
+                <Label htmlFor="title">Project Title *</Label>
+                <Input 
+                  id="title" 
+                  placeholder="Website Redesign" 
+                  {...projectForm.register("title")}
+                />
+                {projectForm.formState.errors.title && (
+                  <p className="text-sm text-red-500">{projectForm.formState.errors.title.message}</p>
+                )}
+              </div>
+              <div className="col-span-2 space-y-2">
+                <Label htmlFor="description">Description</Label>
+                <Textarea 
+                  id="description" 
+                  placeholder="Project description and requirements..." 
+                  {...projectForm.register("description")}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="clientId">Client *</Label>
+                <Select onValueChange={(value) => projectForm.setValue("clientId", value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select client" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clients.map((client) => (
+                      <SelectItem key={client._id} value={client._id}>
+                        {client.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {projectForm.formState.errors.clientId && (
+                  <p className="text-sm text-red-500">{projectForm.formState.errors.clientId.message}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="budget">Budget (USD)</Label>
+                <Input 
+                  id="budget" 
+                  type="number" 
+                  placeholder="10000" 
+                  {...projectForm.register("budget", { valueAsNumber: true })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="startDate">Start Date</Label>
+                <Input 
+                  id="startDate" 
+                  type="date" 
+                  {...projectForm.register("startDate")}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="endDate">End Date</Label>
+                <Input 
+                  id="endDate" 
+                  type="date" 
+                  {...projectForm.register("endDate")}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="status">Status</Label>
+                <Select onValueChange={(value) => projectForm.setValue("status", value as "planning" | "in_progress" | "review" | "completed")}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="planning">Planning</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="review">Review</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => {
+                  projectForm.reset()
+                  setIsNewProjectOpen(false)
+                }}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isLoading}>
+                {isLoading ? "Creating..." : "Create Project"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

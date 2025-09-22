@@ -6,6 +6,7 @@ import { Analytics } from "@vercel/analytics/next"
 import { ClerkProvider } from '@clerk/nextjs'
 import { ThemeProvider } from "@/components/theme-provider"
 import { ConvexClientProvider } from "@/lib/convex-provider"
+import { Toaster } from "@/components/ui/toaster"
 import { Suspense } from "react"
 import "./globals.css"
 
@@ -33,6 +34,7 @@ export default function RootLayout({
               <ConvexClientProvider>
                 <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
                   {children}
+                  <Toaster />
                 </ThemeProvider>
               </ConvexClientProvider>
             </Suspense>
@@ -51,6 +53,7 @@ export default function RootLayout({
           <ConvexClientProvider>
             <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
               {children}
+              <Toaster />
             </ThemeProvider>
           </ConvexClientProvider>
         </Suspense>
